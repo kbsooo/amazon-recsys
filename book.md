@@ -1,0 +1,273 @@
+# High-Dimensional Data Analysis with Low-Dimensional Models: Principles, Computation, and Applications
+
+# Contents
+
+- 1 Introduction 1
+  - 1.1 A Universal Task: Pursuit of Low-Dimensional Structure 1
+    - 1.1.1 Identifying Dynamical Systems and Serial Data 1
+    - 1.1.2 Patterns and Orders in Man-Made World 3
+    - 1.1.3 Eﬃcient Data Acquisition and Processing 5
+    - 1.1.4 Interpretation of Data with Graphical Models 7
+  - 1.2 A Brief History 10
+    - 1.2.1 Neural Science: Sparse Coding 10
+    - 1.2.2 Signal Processing: Sparse Error Correction 12
+    - 1.2.3 Classical Statistics: Sparse Regression Analysis 16
+    - 1.2.4 Data Analysis: Principal Component Analysis 18
+  - 1.3 The Modern Era 21
+    - 1.3.1 From Curses to Blessings of High-Dimensionality 21
+    - 1.3.2 Compressive Sensing, Error Correction, and Deep Learning 23
+    - 1.3.3 High-Dimensional Geometry and Non-Asymptotic Statistics 25
+    - 1.3.4 Scalable Optimization: Convex and Nonconvex 27
+    - 1.3.5 A Perfect Storm 29
+
+## Part I Principles of Low-Dimensional Models 33
+
+- 2 Sparse Signal Models 35
+  - 2.1 Applications of Sparse Signal Modeling 
+    - 2.1.1 An Example from Medical Imaging 
+    - 2.1.2 An Example from Image Processing 
+    - 2.1.3 An Example from Face Recognition 
+  - 2.2 Recovering a Sparse Solution 35
+    - 2.2.1 Norms on Vector Spaces 44
+    - 2.2.2 The ℓ0 Norm 46
+    - 2.2.3 The Sparsest Solution: Minimizing the ℓ0 Norm 47
+    - 2.2.4 Computational Complexity of ℓ0 Minimization 50
+  - 2.3 Relaxing the Sparse Recovery Problem 53
+    - 2.3.1 Convex Functions 53
+    - 2.3.2 A Convex Surrogate for the ℓ0 Norm: the ℓ1 Norm 56
+    - 2.3.3 A Simple Test of ℓ1 Minimization 58
+    - 2.3.4 Sparse Error Correction via Logan’s Phenomenon
+
+- 3 Convex Methods for Sparse Signal Recovery 72
+  - 3.1 Why Does ℓ1 Minimization Succeed? Geometric Intuitions 72
+  - 3.2 A First Correctness Result for Incoherent Matrices 75
+    - 3.2.1 Coherence of a Matrix 75
+    - 3.2.2 Correctness of ℓ1 Minimization 77
+    - 3.2.3 Constructing an Incoherent Matrix 80
+    - 3.2.4 Limitations of Incoherence 83
+  - 3.3 Towards Stronger Correctness Results 85
+    - 3.3.1 The Restricted Isometry Property (RIP) 85
+    - 3.3.2 Restricted Strong Convexity Condition 88
+    - 3.3.3 Success of ℓ1 Minimization under RIP 91
+  - 3.4 Matrices with Restricted Isometry Property 94
+    - 3.4.1 The Johnson-Lindenstrauss Lemma 95
+    - 3.4.2 RIP of Gaussian Random Matrices 98
+    - 3.4.3 RIP of Non-Gaussian Matrices 102
+  - 3.5 Noisy Observations or Approximate Sparsity 105
+    - 3.5.1 Stable Recovery of Sparse Signals 106
+    - 3.5.2 Recovery of Inexact Sparse Signals 114
+  - 3.6 Phase Transitions in Sparse Recovery 116
+    - 3.6.1 Phase Transitions: Main Conclusions 118
+    - 3.6.2 Phase Transitions via Coeﬃcient-Space Geometry 119
+    - 3.6.3 Phase Transitions via Observation-Space Geometry 122
+    - 3.6.4 Phase Transitions in Support Recovery 
+
+- 4 Convex Methods for Low-Rank Matrix Recovery 136
+  - 4.1 Motivating Examples of Low-Rank Modeling 
+    - 4.1.1 3D Shape from Photometric Measurements 137
+    - 4.1.2 Recommendation Systems 138
+    - 4.1.3 Euclidean Distance Matrix Embedding 140
+    - 4.1.4 Latent Semantic Analysis 140
+  - 4.2 Representing Low-Rank Matrix via SVD 141
+    - 4.2.1 Singular Vectors via Nonconvex Optimization 142
+    - 4.2.2 Best Low-Rank Matrix Approximation 145
+  - 4.3 Recovering a Low-Rank Matrix 146
+    - 4.3.1 General Rank Minimization Problems 146
+    - 4.3.2 Convex Relaxation of Rank Minimization 147
+    - 4.3.3 Nuclear Norm as a Convex Envelope of Rank 150
+    - 4.3.4 Success of Nuclear Norm under Rank-RIP 152
+    - 4.3.5 Rank-RIP of Random Measurements 157
+    - 4.3.6 Noise, Inexact Low Rank, and Phase Transition 162
+  - 4.4 Low-Rank Matrix Completion 167
+    - 4.4.1 Nuclear Norm Minimization for Matrix Completion 168
+    - 4.4.2 Algorithm via Augmented Lagrange Multiplier 169
+    - 4.4.3 When Nuclear Norm Minimization Succeeds? 171
+    - 4.4.4 Proving Correctness of Nuclear Norm Minimization 174
+    - 4.4.5 Stable Matrix Completion with Noise 
+
+- 5 Decomposing Low-Rank and Sparse Matrices 195
+  - 5.1 Robust PCA and Motivating Examples 195
+    - 5.1.1 Problem Formulation 195
+    - 5.1.2 Matrix Rigidity and Planted Clique 196
+    - 5.1.3 Applications of Robust PCA 198
+  - 5.2 Robust PCA via Principal Component Pursuit 201
+    - 5.2.1 Convex Relaxation for Sparse Low-Rank Separation 201
+    - 5.2.2 Solving PCP via Alternating Directions Method 202
+    - 5.2.3 Numerical Simulations and Experiments of PCP 204
+  - 5.3 Identifiability and Exact Recovery 209
+    - 5.3.1 Identifiability Conditions 210
+    - 5.3.2 Correctness of Principal Component Pursuit 212
+    - 5.3.3 Some Extensions to the Main Result 221
+  - 5.4 Stable Principal Component Pursuit with Noise 223
+  - 5.5 Compressive Principal Component Pursuit 227
+  - 5.6 Matrix Completion with Corrupted Entries 
+
+- 6 Recovering General Low-Dimensional Models 237
+  - 6.1 Concise Signal Models
+    - 6.1.1 Atomic Sets and Examples 238
+    - 6.1.2 Atomic Norm Minimization for Structured Signals 241
+  - 6.2 Geometry, Measure Concentration, and Phase Transition 244
+    - 6.2.1 Success Condition as Two Non-Intersecting Cones 245
+    - 6.2.2 Intrinsic Volumes and Kinematic Formula 247
+    - 6.2.3 Statistical Dimension and Phase Transition 251
+    - 6.2.4 Statistical Dimension of Descent Cone of the ℓ1 Norm 254
+    - 6.2.5 Phase Transition in Decomposing Structured Signals 257
+  - 6.3 Limitations of Convex Relaxation 259
+    - 6.3.1 Suboptimality of Convex Relaxation for Multiple Structures 260
+    - 6.3.2 Intractable Convex Relaxation for High-Order Tensors 261
+    - 6.3.3 Lack of Convex Relaxation for Bilinear Problems 262
+    - 6.3.4 Nonlinear Low-Dimensional Structures 263
+    - 6.3.5 Return of Nonconvex Formulation and Optimization
+
+- 7 Nonconvex Methods for Low-Dimensional Models 267
+  - 7.1 Introduction 267
+    - 7.1.1 Nonlinearity, Symmetry, and Nonconvexity 268
+    - 7.1.2 Symmetry and the Global Geometry of Optimization 272
+    - 7.1.3 A Taxonomy of Symmetric Nonconvex Problems 273
+  - 7.2 Nonconvex Problems with Rotational Symmetries 275
+    - 7.2.1 Minimal Example: Phase Retrieval with One Unknown 275
+    - 7.2.2 Generalized Phase Retrieval 277
+    - 7.2.3 Low Rank Matrix Recovery 281
+    - 7.2.4 Other Nonconvex Problems with Rotational Symmetry 287
+  - 7.3 Nonconvex Problems with Discrete Symmetries 287
+    - 7.3.1 Minimal Example: Dictionary Learning with One Sparsity 288
+    - 7.3.2 Dictionary Learning 291
+    - 7.3.3 Sparse Blind Deconvolution 294
+    - 7.3.4 Other Nonconvex Problems with Discrete Symmetry
+
+## Part II Computation for Large-Scale Problems 
+
+- 8 Convex Optimization for Structured Signal Recovery 309
+  - 8.1 Challenges and Opportunities 310
+  - 8.2 Proximal Gradient Methods 312
+    - 8.2.1 Convergence of Gradient Descent 
+    - 8.2.2 From Gradient to Proximal Gradient 
+    - 8.2.3 Proximal Gradient for the Lasso and Stable PCP 
+    - 8.2.4 Convergence of Proximal Gradient 
+  - 8.3 Accelerated Proximal Gradient Methods 
+    - 8.3.1 Acceleration via Nesterov’s Method 
+    - 8.3.2 APG for Basis Pursuit Denoising 
+    - 8.3.3 APG for Stable Principal Component Pursuit 
+    - 8.3.4 Convergence of APG 328
+    - 8.3.5 Further Developments on Acceleration 
+  - 8.4 Augmented Lagrange Multipliers 331
+    - 8.4.1 ALM for Basis Pursuit 
+    - 8.4.2 ALM for Principal Component Pursuit 
+    - 8.4.3 Convergence of ALM 337
+  - 8.5 Alternating Direction Method of Multipliers 
+    - 8.5.1 ADMM for Principal Component Pursuit 
+    - 8.5.2 Monotone Operators 340
+    - 8.5.3 Convergence of ALM and ADMM 
+  - 8.6 Leveraging Problem Structures for Better Scalability 
+    - 8.6.1 Frank-Wolfe for Structured Constraint Set 
+    - 8.6.2 Frank-Wolfe for Stable Matrix Completion 
+    - 8.6.3 Connection to Greedy Methods for Sparsity 
+    - 8.6.4 Stochastic Gradient Descent for Finite Sum 
+
+- 9 Nonconvex Optimization for High-Dimensional Problems 370
+  - 9.1 Challenges and Opportunities 371
+    - 9.1.1 Finding Critical Points via Gradient Descent 
+    - 9.1.2 Finding Critical Points via Newton’s Method 
+  - 9.2 Cubic Regularization of Newton’s Method 
+    - 9.2.1 Convergence to Second-order Stationary Points 
+    - 9.2.2 More Scalable Solution to the Subproblem 
+  - 9.3 Gradient and Negative Curvature Descent 
+    - 9.3.1 Hybrid Gradient and Negative Curvature Descent 383
+    - 9.3.2 Computing Negative Curvature via Lanczos Method 386
+    - 9.3.3 Overall Complexity in First-order Oracle 
+  - 9.4 Negative Curvature and Newton Descent 
+    - 9.4.1 Curvature Guided Newton Descent 
+    - 9.4.2 Inexact Negative Curvature and Newton Descent 394
+    - 9.4.3 Overall Complexity in First-order Oracle 
+  - 9.5 Gradient Descent with Small Random Noise 
+    - 9.5.1 Diﬀusion Process and Laplace’s Method 
+    - 9.5.2 Noisy Gradient with Langevin Monte Carlo 
+    - 9.5.3 Negative Curvature Descent with Random Noise 405
+    - 9.5.4 Complexity of Perturbed Gradient Descent 372
+  - 9.6 Leveraging Symmetry Structure: Generalized Power Iteration 412
+    - 9.6.1 Power Iteration for Computing Singular Vectors
+    - 9.6.2 Complete Dictionary Learning 414
+    - 9.6.3 Optimization over Stiefel Manifolds 
+    - 9.6.4 Fixed Point of a Contraction Mapping 
+
+## Part III Applications to Real-World Problems 423
+
+- 10 Magnetic Resonance Imaging 425
+  - 10.1 Introduction 425
+  - 10.2 Formation of MR Images 
+    - 10.2.1 Basic Physics 426
+    - 10.2.2 Selective Excitation and Spatial Encoding 
+    - 10.2.3 Sampling and Reconstruction 429
+  - 10.3 Sparsity and Compressive Sampling of MR Images 
+    - 10.3.1 Sparsity of MR Images 
+    - 10.3.2 Compressive Sampling of MR Images 
+  - 10.4 Algorithms for MR Image Recovery 
+
+- 11 Wideband Spectrum Sensing 445
+  - 11.1 Introduction 445
+    - 11.1.1 Wideband Communications 445
+    - 11.1.2 Nyquist Sampling and Beyond 
+  - 11.2 Wideband Interferer Detection 447
+    - 11.2.1 Conventional Scanning Approaches 448
+    - 11.2.2 Compressive Sensing in the Frequency Domain 
+  - 11.3 System Implementation and Performance 
+    - 11.3.1 Quadrature Analog to Information Converter 
+    - 11.3.2 A Prototype Circuit Implementation 
+    - 11.3.3 Recent Developments in Hardware Implementation 
+
+- 12 Scientific Imaging Problems 462
+  - 12.1 Introduction 462
+  - 12.2 Data Model and Optimization Formulation 462
+  - 12.3 Symmetry in Short-and-Sparse Deconvolution 466
+  - 12.4 Algorithms for Short-and-Sparse Deconvolution 468
+    - 12.4.1 Alternating Descent Method 468
+    - 12.4.2 Additional Heuristics for Highly Coherent Problems 470
+    - 12.4.3 Computational Examples
+
+- 13 Robust Face Recognition 474
+  - 13.1 Introduction 474
+  - 13.2 Classification Based on Sparse Representation 
+  - 13.3 Robustness to Occlusion or Corruption 
+  - 13.4 Dense Error Correction with the Cross and Bouquet 
+
+- 14 Robust Photometric Stereo 488
+  - 14.1 Introduction 488
+  - 14.2 Photometric Stereo via Low-Rank Matrix Recovery 
+    - 14.2.1 Lambertian Surface under Directional Lights 
+    - 14.2.2 Modeling Shadows and Specularities 
+  - 14.3 Robust Matrix Completion Algorithm 
+  - 14.4 Experimental Evaluation 497
+    - 14.4.1 Quantitative Evaluation with Synthetic Images 
+    - 14.4.2 Qualitative Evaluation with Real Images
+
+- 15 Structured Texture Recovery 506
+  - 15.1 Introduction 506
+  - 15.2 Low-Rank Textures 507
+  - 15.3 Structured Texture Inpainting 509
+  - 15.4 Transform Invariant Low-Rank Textures 514
+    - 15.4.1 Deformed and Corrupted Low-rank Textures 514
+    - 15.4.2 The TILT Algorithm 516
+  - 15.5 Applications of TILT 520
+    - 15.5.1 Rectifying Planar Low-Rank Textures 520
+    - 15.5.2 Rectifying Generalized Cylindrical Surfaces 521
+    - 15.5.3 Calibrating Camera Lens Distortion 
+
+- 16 Deep Networks for Classification 533
+  - 16.1 Introduction 533
+    - 16.1.1 Deep Learning in a Nutshell 
+    - 16.1.2 The Practice of Deep Learning 
+    - 16.1.3 Challenges with Nonlinearity and Discriminativeness 
+  - 16.2 Desiderata for Learning Discriminative Representation 
+    - 16.2.1 Measure of Compactness for a Representation 
+    - 16.2.2 Principle of Maximal Coding Rate Reduction 
+    - 16.2.3 Properties of the Rate Reduction Function 
+    - 16.2.4 Experiments on Real Data 
+  - 16.3 Deep Networks from First Principles 
+    - 16.3.1 Deep Networks from Optimizing Rate Reduction 
+    - 16.3.2 Convolutional Networks from Invariant Rate Reduction 554
+    - 16.3.3 Simulations and Experiments 562
+  - 16.4 Guaranteed Manifold Classification by Deep Networks 
+    - 16.4.1 Minimal Case: Two 1D Submanifolds 
+    - 16.4.2 Problem Formulation and Analysis 
+    - 16.4.3 Main Conclusion 571
+  - 16.5 Epilogue: Open Problems and Future Directions 
