@@ -58,8 +58,10 @@ def eval_top20(alpha=0.5, max_users=500):
     user_groups = test_df.groupby('user_idx')
     recalls, ndcgs = [], []
     
+    # Pre-compute embeddings for efficiency
     with torch.no_grad():
         cca_u, cca_i = cca(edge_index, cca_weight)
+        ccb_u, ccb_i = ccb(edge_index, ccb_weight)
     
     # Normalization range (단순화)
     CCA_MIN, CCA_MAX = -0.5, 0.5
@@ -74,16 +76,17 @@ def eval_top20(alpha=0.5, max_users=500):
         if len(gt_items) == 0: continue
         
         # 모든 아이템에 대해 점수 계산 (샘플링 없이)
-        all_items = torch.arange(n_items, device=device)
+        # all_items = torch.arange(n_items, device=device) # Not needed if we use broadcasting
         
         with torch.no_grad():
+            # CCA Score
             cca_s = (cca_u[user_idx] * cca_i).sum(dim=1).cpu().numpy()
-            ccb_r = ccb.predict_rating(
-                torch.full((n_items,), user_idx, device=device),
-                all_items,
-                edge_index,
-                ccb_weight
-            ).cpu().numpy()
+            
+            # CCB Rating (Optimized)
+            # interaction = ccb_u[user_idx] * ccb_i  # Broadcasting: (emb_dim) * (n_items, emb_dim) -> (n_items, emb_dim)
+            interaction = ccb_u[user_idx].unsqueeze(0) * ccb_i
+            rating_logit = ccb.rating_mlp(interaction).squeeze(-1)
+            ccb_r = (torch.sigmoid(rating_logit) * 4.5 + 0.5).cpu().numpy()
         
         # Normalize
         cca_n = np.clip((cca_s - CCA_MIN) / (CCA_MAX - CCA_MIN + 1e-8), 0, 1)
