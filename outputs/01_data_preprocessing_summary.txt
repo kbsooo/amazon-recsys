@@ -1,0 +1,23 @@
+
+[데이터 분할]
+- Train: 451,598 (79.5%)
+- Val: 70,050 (12.3%)
+- Test: 46,615 (8.2%)
+
+[그래프 정보]
+- 노드: User 256,009 + Item 74,233 = 330,242
+- Train Edges: 903,196 (양방향)
+- Val Edges: 69,973
+- Test Edges: 46,461
+
+[추천 규칙]
+- 평균 K: 2.11
+- K=2 유저: 252,380명
+- K>2 유저: 3,629명
+
+[저장된 파일]
+- data/train_split.csv, val_split.csv, test_split.csv
+- data/train_graph.pt
+- data/user2idx.pkl, item2idx.pkl (및 역매핑)
+- data/user_train_items.pkl, user_k.pkl
+- data/*_edges.pkl
