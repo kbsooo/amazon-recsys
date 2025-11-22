@@ -450,3 +450,5 @@ print("  - models/ccb_best.pt")
 print("  - models/ensemble_model.pt")
 
 print("\n✅ 학습 파이프라인 실행 완료!")
+
+# %%
