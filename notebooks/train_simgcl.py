@@ -23,10 +23,11 @@ warnings.filterwarnings('ignore')
 
 # Font settings removed to avoid font errors in Kaggle
 
-#%%
-print("="*60)
-print("Model Definitions: LightGCN + SimGCL")
-print("="*60)
+#%% [markdown]
+# Model Definitions: LightGCN + SimGCL
+# ==========================================
+
+#%% [code]
 
 class LightGCN_SimGCL(nn.Module):
     """
@@ -135,10 +136,11 @@ def compute_infonce_loss(emb_1, emb_2, temperature=0.2):
 
 print("✅ Model definitions complete")
 
-#%%
-print("="*60)
-print("1. 환경 설정")
-print("="*60)
+#%% [markdown]
+# 1. Environment Setup
+# ==========================================
+
+#%% [code]
 
 # Random Seed
 SEED = 42
@@ -178,10 +180,11 @@ print(f"  Epochs: {EPOCHS}")
 print(f"  Noise (eps): {EPS}")
 print(f"  Lambda CL: {LAMBDA_CL}")
 
-#%%
-print("\n" + "="*60)
-print("2. 데이터 로드")
-print("="*60)
+#%% [markdown]
+# 2. Data Loading
+# ==========================================
+
+#%% [code]
 
 # Load split data
 train_df = pd.read_csv('/kaggle/input/amazon/train_split.csv')
@@ -216,10 +219,11 @@ with open('/kaggle/input/amazon/user_train_items.pkl', 'rb') as f:
 
 print(f"✅ ID mappings loaded for inference")
 
-#%%
-print("\n" + "="*60)
-print("3. Negative Sampling 함수")
-print("="*60)
+#%% [markdown]
+# 3. Negative Sampling Functions
+# ==========================================
+
+#%% [code]
 
 def fast_sample_negatives(batch_size, num_neg=4):
     """빠른 랜덤 negative sampling"""
@@ -242,10 +246,11 @@ def hard_negative_sampling(user_emb, item_emb, pos_users, num_neg=4, num_candida
 
 print("✅ Negative Sampling 함수 정의 완료")
 
-#%%
-print("\n" + "="*60)
-print("4. 평가 함수")
-print("="*60)
+#%% [markdown]
+# 4. Evaluation Functions
+# ==========================================
+
+#%% [code]
 
 @torch.no_grad()
 def evaluate_recall_ndcg(model, eval_df, edge_index, edge_weight, k_list=[20, 50]):
@@ -288,10 +293,11 @@ def evaluate_recall_ndcg(model, eval_df, edge_index, edge_weight, k_list=[20, 50
 
 print("✅ 평가 함수 정의 완료")
 
-#%%
-print("\n" + "="*60)
-print("5. SimGCL 모델 학습")
-print("="*60)
+#%% [markdown]
+# 5. SimGCL Training Loop
+# ==========================================
+
+#%% [code]
 
 # 모델 초기화
 model = LightGCN_SimGCL(n_users, n_items, EMB_DIM, N_LAYERS, eps=EPS).to(device)
@@ -412,10 +418,11 @@ for epoch in range(EPOCHS):
 
 print(f"\n✅ SimGCL 모델 학습 완료 (Best Val Recall@20: {best_val_recall:.4f})")
 
-#%%
-print("\n" + "="*60)
-print("6. 학습 곡선 시각화")
-print("="*60)
+#%% [markdown]
+# 6. Training Curves Visualization
+# ==========================================
+
+#%% [code]
 
 fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
@@ -453,10 +460,11 @@ plt.show()
 
 print("✅ Training curves saved (outputs/simgcl_training_curves.png)")
 
-#%%
-print("\n" + "="*60)
-print("7. 최종 모델 저장")
-print("="*60)
+#%% [markdown]
+# 7. Save Final Model
+# ==========================================
+
+#%% [code]
 
 # Load best model (Best validation)
 model.load_state_dict(torch.load('models/simgcl_best.pt'))
