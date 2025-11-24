@@ -200,7 +200,7 @@ print(f"Val: {len(val_df):,}")
 print(f"Test: {len(test_df):,}")
 
 # Load graph data
-graph_data = torch.load('/kaggle/input/amazon/train_graph.pt')
+graph_data = torch.load('/kaggle/input/amazon/train_graph.pt', weights_only=False)
 edge_index = graph_data['edge_index'].to(device)
 cca_edge_weight = graph_data['cca_weight'].to(device)
 n_users = graph_data['n_users']
@@ -481,7 +481,7 @@ print("✅ Training curves saved (outputs/simgcl_mini_training_curves.png)")
 #%% [code]
 
 # Load best model (Best validation)
-checkpoint = torch.load('models/simgcl_mini_best.pt')
+checkpoint = torch.load('models/simgcl_mini_best.pt', weights_only=False)
 model.load_state_dict(checkpoint['state_dict'])
 
 # Save complete checkpoint
@@ -513,7 +513,7 @@ class SimGCLInference:
         self.device = device
         
         # Load checkpoint
-        checkpoint = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
         config = checkpoint['config']
         
         # Load ID mappings
@@ -527,7 +527,7 @@ class SimGCLInference:
             self.user_train_items = pickle.load(f)
             
         # Load graph data
-        graph_data = torch.load(f'{data_dir}/train_graph.pt', map_location=self.device)
+        graph_data = torch.load(f'{data_dir}/train_graph.pt', map_location=self.device, weights_only=False)
         self.edge_index = graph_data['edge_index'].to(self.device)
         self.edge_weight = graph_data['cca_weight'].to(self.device)
         
