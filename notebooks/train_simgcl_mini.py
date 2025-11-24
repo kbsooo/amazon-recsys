@@ -411,8 +411,17 @@ for epoch in range(EPOCHS):
         if val_metrics['Recall@20'] > best_val_recall:
             best_val_recall = val_metrics['Recall@20']
             patience_counter = 0
-            # Save model
-            torch.save(model.state_dict(), 'models/simgcl_mini_best.pt')
+            # Save model with config
+            torch.save({
+                'state_dict': model.state_dict(),
+                'config': {
+                    'n_users': n_users,
+                    'n_items': n_items,
+                    'emb_dim': EMB_DIM,
+                    'n_layers': N_LAYERS,
+                    'eps': EPS
+                }
+            }, 'models/simgcl_mini_best.pt')
         else:
             patience_counter += 1
             
@@ -472,7 +481,8 @@ print("✅ Training curves saved (outputs/simgcl_mini_training_curves.png)")
 #%% [code]
 
 # Load best model (Best validation)
-model.load_state_dict(torch.load('models/simgcl_mini_best.pt'))
+checkpoint = torch.load('models/simgcl_mini_best.pt')
+model.load_state_dict(checkpoint['state_dict'])
 
 # Save complete checkpoint
 torch.save({
@@ -596,7 +606,7 @@ print("="*60)
 
 # Initialize Inference
 inference = SimGCLInference(
-    model_path='models/simgcl_mini_best.pt',
+    model_path='models/simgcl_mini_final.pt',
     data_dir='/kaggle/input/amazon',
     device=device
 )
