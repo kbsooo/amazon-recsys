@@ -16,7 +16,11 @@ import matplotlib.pyplot as plt
 import pickle
 import time
 import warnings
+import os
 
+# Create directories for outputs
+os.makedirs('models', exist_ok=True)
+os.makedirs('outputs', exist_ok=True)
 warnings.filterwarnings('ignore')
 
 warnings.filterwarnings('ignore')
