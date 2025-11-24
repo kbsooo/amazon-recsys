@@ -492,4 +492,128 @@ print("  - models/simgcl_final.pt")
 
 print("\n✅ SimGCL 학습 파이프라인 실행 완료!")
 
-# %%
+#%% [markdown]
+# 8. Inference
+# ==========================================
+
+#%% [code]
+class SimGCLInference:
+    def __init__(self, model_path, data_dir, device):
+        self.device = device
+        
+        # Load checkpoint
+        checkpoint = torch.load(model_path, map_location=self.device)
+        config = checkpoint['config']
+        
+        # Load ID mappings
+        with open(f'{data_dir}/user2idx.pkl', 'rb') as f:
+            self.user2idx = pickle.load(f)
+        with open(f'{data_dir}/item2idx.pkl', 'rb') as f:
+            self.item2idx = pickle.load(f)
+        with open(f'{data_dir}/user_k.pkl', 'rb') as f:
+            self.user_k = pickle.load(f)
+        with open(f'{data_dir}/user_train_items.pkl', 'rb') as f:
+            self.user_train_items = pickle.load(f)
+            
+        # Load graph data
+        graph_data = torch.load(f'{data_dir}/train_graph.pt', map_location=self.device)
+        self.edge_index = graph_data['edge_index'].to(self.device)
+        self.edge_weight = graph_data['cca_weight'].to(self.device)
+        
+        # Initialize and load model
+        self.model = LightGCN_SimGCL(
+            config['n_users'],
+            config['n_items'],
+            config['emb_dim'],
+            config['n_layers'],
+            eps=config['eps']
+        ).to(self.device)
+        
+        self.model.load_state_dict(checkpoint['state_dict'])
+        self.model.eval()
+        
+        print("✅ Inference system initialized")
+        
+        # Pre-compute embeddings
+        with torch.no_grad():
+            self.user_emb, self.item_emb = self.model(self.edge_index, self.edge_weight, perturbed=False)
+    
+    def predict(self, test_df):
+        results = []
+        
+        # Group by user for batch processing
+        for user_id, group in test_df.groupby('user'):
+            if user_id not in self.user2idx:
+                for _, row in group.iterrows():
+                    results.append({'user': row['user'], 'item': row['item'], 'recommend': 'X'})
+                continue
+            
+            u_idx = self.user2idx[user_id]
+            K = self.user_k.get(u_idx, 2)
+            MIN_K = 2
+            
+            items_to_score = []
+            
+            for _, row in group.iterrows():
+                item_id = row['item']
+                if item_id not in self.item2idx:
+                    results.append({'user': row['user'], 'item': row['item'], 'recommend': 'X'})
+                    continue
+                
+                i_idx = self.item2idx[item_id]
+                # Filter seen items
+                if i_idx in self.user_train_items.get(u_idx, set()):
+                    results.append({'user': row['user'], 'item': row['item'], 'recommend': 'X'})
+                    continue
+                
+                items_to_score.append((i_idx, row))
+            
+            if not items_to_score:
+                continue
+            
+            # Calculate scores
+            item_indices = torch.LongTensor([i for i, _ in items_to_score]).to(self.device)
+            
+            with torch.no_grad():
+                scores = (self.user_emb[u_idx] * self.item_emb[item_indices]).sum(dim=1).cpu().numpy()
+            
+            # Top-K Selection (50% Rule)
+            num_recommend = max(MIN_K, min(K, len(scores) // 2))
+            top_indices = np.argsort(scores)[-num_recommend:]
+            top_set = set(top_indices)
+            
+            for idx, (item_idx, row) in enumerate(items_to_score):
+                recommend = 'O' if idx in top_set else 'X'
+                results.append({'user': row['user'], 'item': row['item'], 'recommend': recommend})
+        
+        return pd.DataFrame(results)
+
+# Run Inference
+print("\n" + "="*60)
+print("Running Inference on Test Set")
+print("="*60)
+
+# Initialize Inference
+inference = SimGCLInference(
+    model_path='models/simgcl_best.pt',
+    data_dir='/kaggle/input/amazon',
+    device=device
+)
+
+# Run prediction on test set
+print("Generating predictions...")
+predictions = inference.predict(test_df[['user', 'item']])
+
+# Save results
+output_path = 'outputs/predictions.csv'
+predictions.to_csv(output_path, index=False)
+print(f"✅ Predictions saved to {output_path}")
+
+# Show sample
+print("\nSample Predictions:")
+print(predictions.head(10))
+
+# Stats
+rec_cnt = len(predictions[predictions['recommend'] == 'O'])
+total_cnt = len(predictions)
+print(f"\nTotal Recommendations: {rec_cnt}/{total_cnt} ({rec_cnt/total_cnt*100:.2f}%)")
