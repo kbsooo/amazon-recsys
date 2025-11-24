@@ -257,45 +257,63 @@ print("✅ Negative Sampling 함수 정의 완료")
 #%% [code]
 
 @torch.no_grad()
-def evaluate_recall_ndcg(model, eval_df, edge_index, edge_weight, k_list=[20, 50]):
-    """Recall@K 및 NDCG@K 평가"""
+def evaluate_metrics(model, eval_df, edge_index, edge_weight, k_list=[10, 20]):
+    """Recall@K, NDCG@K, Precision@K, MAP@K 평가"""
     model.eval()
     u_emb, i_emb = model(edge_index, edge_weight, perturbed=False)
     
     user_groups = eval_df.groupby('user_idx')
     
-    recall_at_k = {k: [] for k in k_list}
-    ndcg_at_k = {k: [] for k in k_list}
+    metrics = {k: {'Recall': [], 'NDCG': [], 'Precision': [], 'MAP': []} for k in k_list}
     
     for user_idx, group in user_groups:
         gt_items = set(group['item_idx'].values)
-        
+        if len(gt_items) == 0:
+            continue
+            
         user_vec = u_emb[user_idx]
         scores = (user_vec @ i_emb.t()).cpu().numpy()
         
+        # Sort all items once (descending)
+        sorted_indices = np.argsort(scores)[::-1]
+        
         for k in k_list:
-            top_k_items = np.argsort(scores)[-k:][::-1]
+            top_k_items = sorted_indices[:k]
+            
+            # Hits vector
+            hits = [1 if item in gt_items else 0 for item in top_k_items]
+            num_hits = sum(hits)
             
             # Recall@K
-            hits = len(set(top_k_items) & gt_items)
-            recall = hits / len(gt_items) if len(gt_items) > 0 else 0
-            recall_at_k[k].append(recall)
+            metrics[k]['Recall'].append(num_hits / len(gt_items))
+            
+            # Precision@K
+            metrics[k]['Precision'].append(num_hits / k)
             
             # NDCG@K
-            dcg = sum([1 / np.log2(i + 2) if item in gt_items else 0 
-                      for i, item in enumerate(top_k_items)])
+            dcg = sum([1 / np.log2(i + 2) if h else 0 for i, h in enumerate(hits)])
             idcg = sum([1 / np.log2(i + 2) for i in range(min(k, len(gt_items)))])
-            ndcg = dcg / idcg if idcg > 0 else 0
-            ndcg_at_k[k].append(ndcg)
-    
-    metrics = {}
+            metrics[k]['NDCG'].append(dcg / idcg if idcg > 0 else 0)
+            
+            # MAP@K
+            ap = 0
+            running_hits = 0
+            for i, h in enumerate(hits):
+                if h:
+                    running_hits += 1
+                    ap += running_hits / (i + 1)
+            metrics[k]['MAP'].append(ap / min(k, len(gt_items)))
+            
+    final_metrics = {}
     for k in k_list:
-        metrics[f'Recall@{k}'] = np.mean(recall_at_k[k])
-        metrics[f'NDCG@{k}'] = np.mean(ndcg_at_k[k])
+        final_metrics[f'Recall@{k}'] = np.mean(metrics[k]['Recall'])
+        final_metrics[f'NDCG@{k}'] = np.mean(metrics[k]['NDCG'])
+        final_metrics[f'Precision@{k}'] = np.mean(metrics[k]['Precision'])
+        final_metrics[f'MAP@{k}'] = np.mean(metrics[k]['MAP'])
     
-    return metrics
+    return final_metrics
 
-print("✅ 평가 함수 정의 완료")
+print("✅ 평가 함수 정의 완료 (Recall, NDCG, Precision, MAP)")
 
 #%% [markdown]
 # 5. SimGCL Training Loop
@@ -324,7 +342,9 @@ history = {
     'bpr_loss': [], 
     'cl_loss': [],
     'val_recall@20': [], 
-    'val_ndcg@20': []
+    'val_ndcg@20': [],
+    'val_precision@20': [],
+    'val_map@20': []
 }
 
 print("학습 시작...")
@@ -398,14 +418,18 @@ for epoch in range(EPOCHS):
     
     # Validation (매 5 epoch)
     if (epoch + 1) % 5 == 0:
-        val_metrics = evaluate_recall_ndcg(model, val_df, edge_index, cca_edge_weight, k_list=[20])
+        val_metrics = evaluate_metrics(model, val_df, edge_index, cca_edge_weight, k_list=[20])
         history['val_recall@20'].append(val_metrics['Recall@20'])
         history['val_ndcg@20'].append(val_metrics['NDCG@20'])
+        history['val_precision@20'].append(val_metrics['Precision@20'])
+        history['val_map@20'].append(val_metrics['MAP@20'])
         
         print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {avg_loss:.4f} | "
               f"BPR: {avg_bpr:.4f} | CL: {avg_cl:.4f} | "
-              f"Val Recall@20: {val_metrics['Recall@20']:.4f} | "
-              f"Val NDCG@20: {val_metrics['NDCG@20']:.4f}")
+              f"Recall@20: {val_metrics['Recall@20']:.4f} | "
+              f"NDCG@20: {val_metrics['NDCG@20']:.4f} | "
+              f"Precision@20: {val_metrics['Precision@20']:.4f} | "
+              f"MAP@20: {val_metrics['MAP@20']:.4f}")
         
         # Early Stopping
         if val_metrics['Recall@20'] > best_val_recall:
@@ -461,6 +485,8 @@ if history['val_recall@20']:
     x = np.arange(5, len(history['loss']) + 1, 5)[:len(history['val_recall@20'])]
     axes[2].plot(x, history['val_recall@20'], label='Recall@20', marker='o', color='purple')
     axes[2].plot(x, history['val_ndcg@20'], label='NDCG@20', marker='s', color='red')
+    axes[2].plot(x, history['val_precision@20'], label='Precision@20', marker='^', color='cyan')
+    axes[2].plot(x, history['val_map@20'], label='MAP@20', marker='x', color='green')
     axes[2].set_xlabel('Epoch')
     axes[2].set_ylabel('Score')
     axes[2].set_title('Validation Metrics')
