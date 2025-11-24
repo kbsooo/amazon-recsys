@@ -310,7 +310,8 @@ def create_simgcl_notebook():
     }
 
     # 5. Write Notebook
-    output_path = 'kaggle_train_simgcl.ipynb'
+    output_path = 'notebooks/kaggle_train_simgcl.ipynb'
+    os.makedirs('notebooks', exist_ok=True)
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(notebook, f, indent=1, ensure_ascii=False)
     

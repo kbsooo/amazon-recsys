@@ -23,9 +23,7 @@ from model import LightGCN_SimGCL, compute_infonce_loss
 
 warnings.filterwarnings('ignore')
 
-# 한글 폰트
-plt.rc('font', family='AppleGothic')
-plt.rcParams['axes.unicode_minus'] = False
+# Font settings removed to avoid font errors in Kaggle
 
 #%%
 print("="*60)
@@ -95,6 +93,18 @@ print(f"\n그래프 정보:")
 print(f"  유저 수: {n_users:,}")
 print(f"  아이템 수: {n_items:,}")
 print(f"  엣지 수: {edge_index.shape[1]:,}")
+
+# Load ID mappings for inference
+with open('../data/user2idx.pkl', 'rb') as f:
+    user2idx = pickle.load(f)
+with open('../data/item2idx.pkl', 'rb') as f:
+    item2idx = pickle.load(f)
+with open('../data/user_k.pkl', 'rb') as f:
+    user_k = pickle.load(f)
+with open('../data/user_train_items.pkl', 'rb') as f:
+    user_train_items = pickle.load(f)
+
+print(f"✅ ID mappings loaded for inference")
 
 #%%
 print("\n" + "="*60)
