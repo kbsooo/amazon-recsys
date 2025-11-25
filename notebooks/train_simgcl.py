@@ -585,9 +585,16 @@ class SimGCLInference:
                 continue
             
             u_idx = self.user2idx[user_id]
-            K = self.user_k.get(u_idx, 2)
-            MIN_K = 2
+            K = self.user_k.get(u_idx, 0) # Default to 0 if unknown
             
+            # 50% Rule: Recommend max 50% of K
+            num_recommend = int(K * 0.5)
+            
+            if num_recommend == 0:
+                for _, row in group.iterrows():
+                    results.append({'user': row['user'], 'item': row['item'], 'recommend': 'X'})
+                continue
+
             items_to_score = []
             
             for _, row in group.iterrows():
@@ -614,9 +621,12 @@ class SimGCLInference:
                 scores = (self.user_emb[u_idx] * self.item_emb[item_indices]).sum(dim=1).cpu().numpy()
             
             # Top-K Selection (50% Rule)
-            num_recommend = max(MIN_K, min(K, len(scores) // 2))
-            top_indices = np.argsort(scores)[-num_recommend:]
-            top_set = set(top_indices)
+        # num_recommend is already calculated as int(K * 0.5)
+        # Ensure we don't exceed the number of candidates
+        num_recommend = min(num_recommend, len(scores))
+        
+        top_indices = np.argsort(scores)[-num_recommend:]
+        top_set = set(top_indices)
             
             for idx, (item_idx, row) in enumerate(items_to_score):
                 recommend = 'O' if idx in top_set else 'X'
