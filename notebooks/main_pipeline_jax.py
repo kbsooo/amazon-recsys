@@ -36,13 +36,30 @@ print(f"JAX devices: {jax.devices()}")
 SEED = 42
 np.random.seed(SEED)
 
-# Paths
-DATA_DIR = 'data'
-OUTPUT_DIR = 'outputs'
-MODEL_DIR = 'models'
+# ✅ Kaggle 환경 감지 및 경로 설정
+IS_KAGGLE = os.path.exists('/kaggle/input')
 
+if IS_KAGGLE:
+    print("🎯 Running on Kaggle")
+    DATA_DIR = '/kaggle/input/amazon'
+    WORKING_DIR = '/kaggle/working'
+    OUTPUT_DIR = os.path.join(WORKING_DIR, 'outputs')
+    MODEL_DIR = os.path.join(WORKING_DIR, 'models')
+else:
+    print("💻 Running locally")
+    DATA_DIR = 'data'
+    WORKING_DIR = '.'
+    OUTPUT_DIR = 'outputs'
+    MODEL_DIR = 'models'
+
+# 디렉토리 생성
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+print(f"📁 DATA_DIR: {DATA_DIR}")
+print(f"📁 OUTPUT_DIR: {OUTPUT_DIR}")
+print(f"📁 MODEL_DIR: {MODEL_DIR}")
+
 
 #%% [markdown]
 # ## Part 1: 데이터 로드
