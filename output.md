@@ -1,41 +1,104 @@
 ============================================================
-5. CCA 모델 학습 (Binary Recommendation)
+🏋️ 학습 준비
 ============================================================
-학습 시작...
-Epoch 5/100 | Loss: 0.0969 | Val Recall@20: 0.3965 | Val NDCG@20: 0.1779
-Epoch 10/100 | Loss: 0.0461 | Val Recall@20: 0.4311 | Val NDCG@20: 0.1966
-Epoch 15/100 | Loss: 0.0279 | Val Recall@20: 0.4515 | Val NDCG@20: 0.2089
-Epoch 20/100 | Loss: 0.0185 | Val Recall@20: 0.4651 | Val NDCG@20: 0.2166
-Epoch 25/100 | Loss: 0.0127 | Val Recall@20: 0.4745 | Val NDCG@20: 0.2235
-Epoch 30/100 | Loss: 0.0091 | Val Recall@20: 0.4806 | Val NDCG@20: 0.2276
-Epoch 35/100 | Loss: 0.0067 | Val Recall@20: 0.4860 | Val NDCG@20: 0.2312
-Epoch 40/100 | Loss: 0.0053 | Val Recall@20: 0.4894 | Val NDCG@20: 0.2336
-Epoch 45/100 | Loss: 0.0044 | Val Recall@20: 0.4917 | Val NDCG@20: 0.2359
-Epoch 50/100 | Loss: 0.0036 | Val Recall@20: 0.4934 | Val NDCG@20: 0.2370
-Epoch 55/100 | Loss: 0.0032 | Val Recall@20: 0.4952 | Val NDCG@20: 0.2382
-Epoch 60/100 | Loss: 0.0029 | Val Recall@20: 0.4962 | Val NDCG@20: 0.2384
-Epoch 65/100 | Loss: 0.0028 | Val Recall@20: 0.4972 | Val NDCG@20: 0.2389
-Epoch 70/100 | Loss: 0.0027 | Val Recall@20: 0.4977 | Val NDCG@20: 0.2392
-Epoch 75/100 | Loss: 0.0025 | Val Recall@20: 0.4980 | Val NDCG@20: 0.2395
-Epoch 80/100 | Loss: 0.0024 | Val Recall@20: 0.4980 | Val NDCG@20: 0.2396
-Epoch 85/100 | Loss: 0.0023 | Val Recall@20: 0.4982 | Val NDCG@20: 0.2397
-Epoch 90/100 | Loss: 0.0024 | Val Recall@20: 0.4983 | Val NDCG@20: 0.2398
-Epoch 95/100 | Loss: 0.0024 | Val Recall@20: 0.4983 | Val NDCG@20: 0.2398
-Epoch 100/100 | Loss: 0.0024 | Val Recall@20: 0.4983 | Val NDCG@20: 0.2398
+✅ Model initialized
+  Parameters: 21,135,488
 
 ============================================================
-6. CCB 모델 학습 (Rating Prediction + BPR)
+🏋️ 학습 시작 (Early Stopping 적용)
 ============================================================
-학습 시작...
-Epoch 5/100 | Total Loss: 0.4575 | BPR: 0.2659 | MSE: 0.3832 | Val RMSE: 2.2258
-Epoch 10/100 | Total Loss: 0.2578 | BPR: 0.1817 | MSE: 0.1522 | Val RMSE: 2.3175
-Epoch 15/100 | Total Loss: 0.1872 | BPR: 0.1322 | MSE: 0.1101 | Val RMSE: 2.2924
-Epoch 20/100 | Total Loss: 0.1450 | BPR: 0.0998 | MSE: 0.0903 | Val RMSE: 2.3044
-Epoch 25/100 | Total Loss: 0.1161 | BPR: 0.0774 | MSE: 0.0774 | Val RMSE: 2.3063
-Epoch 30/100 | Total Loss: 0.0960 | BPR: 0.0616 | MSE: 0.0688 | Val RMSE: 2.3127
-Epoch 35/100 | Total Loss: 0.0813 | BPR: 0.0499 | MSE: 0.0628 | Val RMSE: 2.3241
-Epoch 40/100 | Total Loss: 0.0700 | BPR: 0.0410 | MSE: 0.0580 | Val RMSE: 2.3392
-Epoch 45/100 | Total Loss: 0.0617 | BPR: 0.0343 | MSE: 0.0548 | Val RMSE: 2.3613
-Epoch 50/100 | Total Loss: 0.0555 | BPR: 0.0293 | MSE: 0.0524 | Val RMSE: 2.3918
-Epoch 55/100 | Total Loss: 0.0509 | BPR: 0.0255 | MSE: 0.0509 | Val RMSE: 2.4128
-✅ CCB 모델 학습 완료 (Best Val RMSE: 2.2258)
+Epochs: 50, Batches/Epoch: 221, Patience: 5
+Epoch 1/50 | Loss: 2.8970 (BPR: 0.6797, CL: 7.3910) | Recall@20: 0.3339, NDCG@20: 0.2066
+  💾 New best model (Recall@20: 0.3339)
+Epoch 2/50 | Loss: 2.5380 (BPR: 0.6570, CL: 6.2698)
+Epoch 3/50 | Loss: 2.4505 (BPR: 0.6290, CL: 6.0715)
+Epoch 4/50 | Loss: 2.3887 (BPR: 0.5914, CL: 5.9909)
+Epoch 5/50 | Loss: 2.3281 (BPR: 0.5443, CL: 5.9459) | Recall@20: 0.2685, NDCG@20: 0.1793
+  ⏸️ No improvement (1/5)
+Epoch 6/50 | Loss: 2.2670 (BPR: 0.4915, CL: 5.9181)
+Epoch 7/50 | Loss: 2.2086 (BPR: 0.4389, CL: 5.8992)
+Epoch 8/50 | Loss: 2.1560 (BPR: 0.3903, CL: 5.8855)
+Epoch 9/50 | Loss: 2.1092 (BPR: 0.3466, CL: 5.8753)
+Epoch 10/50 | Loss: 2.0673 (BPR: 0.3071, CL: 5.8674) | Recall@20: 0.3321, NDCG@20: 0.2568
+  ⏸️ No improvement (2/5)
+Epoch 11/50 | Loss: 2.0296 (BPR: 0.2710, CL: 5.8620)
+Epoch 12/50 | Loss: 1.9950 (BPR: 0.2376, CL: 5.8582)
+Epoch 13/50 | Loss: 1.9640 (BPR: 0.2072, CL: 5.8563)
+Epoch 14/50 | Loss: 1.9362 (BPR: 0.1800, CL: 5.8540)
+Epoch 15/50 | Loss: 1.9117 (BPR: 0.1562, CL: 5.8517) | Recall@20: 0.4151, NDCG@20: 0.3298
+  💾 New best model (Recall@20: 0.4151)
+Epoch 16/50 | Loss: 1.8905 (BPR: 0.1357, CL: 5.8494)
+Epoch 17/50 | Loss: 1.8722 (BPR: 0.1183, CL: 5.8463)
+Epoch 18/50 | Loss: 1.8562 (BPR: 0.1033, CL: 5.8430)
+Epoch 19/50 | Loss: 1.8424 (BPR: 0.0905, CL: 5.8397)
+Epoch 20/50 | Loss: 1.8303 (BPR: 0.0795, CL: 5.8363) | Recall@20: 0.4262, NDCG@20: 0.3646
+  💾 New best model (Recall@20: 0.4262)
+Epoch 21/50 | Loss: 1.8199 (BPR: 0.0699, CL: 5.8332)
+Epoch 22/50 | Loss: 1.8108 (BPR: 0.0617, CL: 5.8304)
+Epoch 23/50 | Loss: 1.8028 (BPR: 0.0545, CL: 5.8276)
+Epoch 24/50 | Loss: 1.7958 (BPR: 0.0483, CL: 5.8251)
+Epoch 25/50 | Loss: 1.7897 (BPR: 0.0429, CL: 5.8225) | Recall@20: 0.4317, NDCG@20: 0.3681
+  💾 New best model (Recall@20: 0.4317)
+Epoch 26/50 | Loss: 1.7841 (BPR: 0.0381, CL: 5.8200)
+Epoch 27/50 | Loss: 1.7793 (BPR: 0.0339, CL: 5.8180)
+Epoch 28/50 | Loss: 1.7748 (BPR: 0.0301, CL: 5.8157)
+Epoch 29/50 | Loss: 1.7710 (BPR: 0.0268, CL: 5.8139)
+Epoch 30/50 | Loss: 1.7676 (BPR: 0.0240, CL: 5.8119) | Recall@20: 0.4373, NDCG@20: 0.3700
+  💾 New best model (Recall@20: 0.4373)
+Epoch 31/50 | Loss: 1.7643 (BPR: 0.0214, CL: 5.8096)
+Epoch 32/50 | Loss: 1.7615 (BPR: 0.0191, CL: 5.8079)
+Epoch 33/50 | Loss: 1.7590 (BPR: 0.0171, CL: 5.8062)
+Epoch 34/50 | Loss: 1.7570 (BPR: 0.0155, CL: 5.8047)
+Epoch 35/50 | Loss: 1.7548 (BPR: 0.0139, CL: 5.8030) | Recall@20: 0.4271, NDCG@20: 0.3588
+  ⏸️ No improvement (1/5)
+Epoch 36/50 | Loss: 1.7528 (BPR: 0.0125, CL: 5.8010)
+Epoch 37/50 | Loss: 1.7512 (BPR: 0.0113, CL: 5.7997)
+Epoch 38/50 | Loss: 1.7497 (BPR: 0.0102, CL: 5.7984)
+Epoch 39/50 | Loss: 1.7484 (BPR: 0.0093, CL: 5.7969)
+Epoch 40/50 | Loss: 1.7471 (BPR: 0.0084, CL: 5.7956) | Recall@20: 0.4087, NDCG@20: 0.3360
+  ⏸️ No improvement (2/5)
+Epoch 41/50 | Loss: 1.7460 (BPR: 0.0077, CL: 5.7945)
+Epoch 42/50 | Loss: 1.7448 (BPR: 0.0070, CL: 5.7928)
+Epoch 43/50 | Loss: 1.7440 (BPR: 0.0064, CL: 5.7922)
+Epoch 44/50 | Loss: 1.7430 (BPR: 0.0058, CL: 5.7909)
+Epoch 45/50 | Loss: 1.7422 (BPR: 0.0053, CL: 5.7898) | Recall@20: 0.3875, NDCG@20: 0.3186
+  ⏸️ No improvement (3/5)
+Epoch 46/50 | Loss: 1.7416 (BPR: 0.0049, CL: 5.7891)
+Epoch 47/50 | Loss: 1.7408 (BPR: 0.0044, CL: 5.7878)
+Epoch 48/50 | Loss: 1.7403 (BPR: 0.0042, CL: 5.7870)
+Epoch 49/50 | Loss: 1.7398 (BPR: 0.0039, CL: 5.7861)
+Epoch 50/50 | Loss: 1.7391 (BPR: 0.0035, CL: 5.7853) | Recall@20: 0.3699, NDCG@20: 0.2907
+  ⏸️ No improvement (4/5)
+✅ Training complete (Best Val Recall@20: 0.4373)
+✅ Best model restored
+
+============================================================
+📈 최종 평가 (All Splits)
+============================================================
+
+Train Set @20:
+  Recall:    0.8340
+  NDCG:      0.7523
+  Precision: 0.0697
+  MAP:       0.7222
+
+Val Set @20:
+  Recall:    0.4275
+  NDCG:      0.3454
+  Precision: 0.0235
+  MAP:       0.3166
+
+Test Set @20:
+  Recall:    0.5098
+  NDCG:      0.3862
+  Precision: 0.0427
+  MAP:       0.3414
+
+✅ Saved to outputs/jax_evaluation_comparison.png
+
+============================================================
+🧊 Cold User Handling (50% 규칙)
+============================================================
+✅ Predictions complete
+📊 Recommendations: 6879/46615 (14.76%)
+💾 Saved to outputs/jax_predictions.csv
