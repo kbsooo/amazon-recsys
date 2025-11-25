@@ -1,46 +1,52 @@
 #%% [markdown]
-# Amazon RecSys: Integrated Pipeline (JAX/FLAX)
-# SimGCL + EASE Ensemble
-#
-# JAX/FLAX Version for High Performance on TPU/GPU
+# # Amazon RecSys - SimGCL with JAX/FLAX
+# 
+# PyTorch 버전의 JAX/FLAX 구현입니다.
+# **Note**: EASE는 행렬 연산이므로 JAX numpy만으로 구현 가능하며, 여기서는 SimGCL에 초점을 맞춥니다.
 
 #%% [code]
 import os
+import sys
 import pickle
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
+from typing import Any, Callable
+import time
+
+# JAX imports
 import jax
 import jax.numpy as jnp
-from jax import grad, jit, vmap, random
-import flax.linen as nn
+from jax import random, grad, jit, vmap
+from jax.tree_util import tree_map
+
+# FLAX imports
+import flax
+from flax import linen as nn
+from flax.training import train_state
 import optax
 
-# Configuration
+print(f"JAX version: {jax.__version__}")
+print(f"JAX devices: {jax.devices()}")
+
 SEED = 42
-DATA_DIR = '/kaggle/input/amazon' if os.path.exists('/kaggle/input/amazon') else 'data'
+np.random.seed(SEED)
+
+# Paths
+DATA_DIR = 'data'
 OUTPUT_DIR = 'outputs'
+MODEL_DIR = 'models'
 
-EMB_DIM = 64
-N_LAYERS = 3
-EPOCHS = 50
-BATCH_SIZE = 2048
-LR = 0.001
-LAMBDA_CL = 0.2
-EPS = 0.1
-TEMPERATURE = 0.2
-EASE_LAMBDA = 500.0
-ALPHA = 0.5
-
-print(f"JAX Devices: {jax.devices()}")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 #%% [markdown]
-# ## 1. Data Loading
+# ## Part 1: 데이터 로드
 
 #%% [code]
-# (Same data loading logic as PyTorch version, omitted for brevity but assumed loaded)
-# Load Data & Mappings...
-print("Loading Data...")
+print("\n" + "="*60)
+print("📊 데이터 로드")
+print("="*60)
+
 train_df = pd.read_csv(f'{DATA_DIR}/train_split.csv')
 val_df = pd.read_csv(f'{DATA_DIR}/val_split.csv')
 test_df = pd.read_csv(f'{DATA_DIR}/test_split.csv')
@@ -49,154 +55,328 @@ with open(f'{DATA_DIR}/user2idx.pkl', 'rb') as f:
     user2idx = pickle.load(f)
 with open(f'{DATA_DIR}/item2idx.pkl', 'rb') as f:
     item2idx = pickle.load(f)
+with open(f'{DATA_DIR}/user_train_items.pkl', 'rb') as f:
+    user_train_items = pickle.load(f)
 
 n_users = len(user2idx)
 n_items = len(item2idx)
 
-# Build Graph (Adjacency Matrix)
-# JAX handles sparse matrices differently (jax.experimental.sparse), but for GCN 
-# we often use dense or custom message passing.
-# For LightGCN, we can implement it as sparse matrix multiplication: A @ E
-# We will use scipy sparse matrix and convert to JAX BCOO or just use dense if memory allows.
-# Given 74k items, dense adjacency (30k x 74k) is too big.
-# We will use `jax.experimental.sparse`.
+print(f"Users: {n_users}, Items: {n_items}")
+print(f"Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
 
-from jax.experimental import sparse
+# Load graph as numpy arrays
+import torch
+graph_data = torch.load(f'{DATA_DIR}/train_graph.pt', map_location='cpu', weights_only=False)
+edge_index_np = graph_data['edge_index'].numpy()  # [2, num_edges]
+edge_weight_np = graph_data['cca_weight'].numpy()  # [num_edges]
 
-print("Building Graph...")
-train_src = np.array([user2idx[u] for u in train_df['user']])
-train_dst = np.array([item2idx[i] for i in train_df['item']]) + n_users # Shift item indices
+# Convert to JAX
+edge_index_jax = jnp.array(edge_index_np)
+edge_weight_jax = jnp.array(edge_weight_np)
 
-# Symmetric Adjacency
-full_src = np.concatenate([train_src, train_dst])
-full_dst = np.concatenate([train_dst, train_src])
-data = np.ones_like(full_src, dtype=np.float32)
-
-# Degree Normalization (Numpy)
-num_nodes = n_users + n_items
-deg = np.zeros(num_nodes)
-np.add.at(deg, full_src, 1)
-deg_inv_sqrt = np.power(deg, -0.5)
-deg_inv_sqrt[np.isinf(deg_inv_sqrt)] = 0
-
-norm_data = deg_inv_sqrt[full_src] * data * deg_inv_sqrt[full_dst]
-
-# Create JAX Sparse Matrix
-adj_indices = jnp.array(np.stack([full_src, full_dst], axis=1))
-adj_values = jnp.array(norm_data)
-adj_shape = (num_nodes, num_nodes)
-
-# Sparse Matrix A
-A_sparse = sparse.BCOO((adj_values, adj_indices), shape=adj_shape)
-
-print("Graph built (JAX Sparse).")
+print(f"Graph: {edge_index_jax.shape[1]} edges")
 
 #%% [markdown]
-# ## 2. SimGCL Model (Flax)
+# ## Part 2: LightGCN_SimGCL 모델 (FLAX)
 
 #%% [code]
+print("\n" + "="*60)
+print("🧠 LightGCN_SimGCL (FLAX 구현)")
+print("="*60)
+
 class LightGCN_SimGCL(nn.Module):
+    """SimGCL implementation using FLAX"""
     n_users: int
     n_items: int
-    emb_dim: int
-    n_layers: int
-    eps: float
+    emb_dim: int = 64
+    n_layers: int = 3
+    eps: float = 0.1
     
     def setup(self):
-        self.user_emb = nn.Embed(self.n_users, self.emb_dim, embedding_init=nn.initializers.xavier_uniform())
-        self.item_emb = nn.Embed(self.n_items, self.emb_dim, embedding_init=nn.initializers.xavier_uniform())
-
-    def __call__(self, adj_sparse, perturbed=False, key=None):
-        u_emb = self.user_emb(jnp.arange(self.n_users))
-        i_emb = self.item_emb(jnp.arange(self.n_items))
-        all_emb = jnp.concatenate([u_emb, i_emb], axis=0)
+        # Embeddings
+        self.user_emb = nn.Embed(
+            num_embeddings=self.n_users,
+            features=self.emb_dim,
+            embedding_init=nn.initializers.xavier_uniform()
+        )
+        self.item_emb = nn.Embed(
+            num_embeddings=self.n_items,
+            features=self.emb_dim,
+            embedding_init=nn.initializers.xavier_uniform()
+        )
+    
+    def graph_convolution(self, all_emb, edge_index, edge_weight):
+        """Single layer of graph convolution"""
+        row, col = edge_index[0], edge_index[1]
         
-        if perturbed and key is not None:
-            noise = random.normal(key, all_emb.shape)
-            noise = noise / jnp.linalg.norm(noise, axis=-1, keepdims=True)
-            all_emb = all_emb + jnp.sign(all_emb) * noise * self.eps
-            
+        # Message passing: messages = all_emb[col] * edge_weight
+        messages = all_emb[col] * edge_weight[:, None]
+        
+        # Aggregation: scatter_add
+        # JAX doesn't have scatter_add like PyTorch, we use segment_sum
+        # First, we need to sort by row indices
+        total_nodes = self.n_users + self.n_items
+        
+        # Use jax.ops.segment_sum (requires sorted indices)
+        # Alternative: use at[].add() with indices
+        new_emb = jnp.zeros_like(all_emb)
+        new_emb = new_emb.at[row].add(messages)
+        
+        return new_emb
+    
+    def __call__(self, edge_index, edge_weight, perturbed=False, training=False, rng=None):
+        """Forward pass"""
+        # Get initial embeddings
+        user_emb_init = self.user_emb(jnp.arange(self.n_users))
+        item_emb_init = self.item_emb(jnp.arange(self.n_items))
+        all_emb = jnp.concatenate([user_emb_init, item_emb_init], axis=0)
+        
+        # Perturbation (for contrastive learning)
+        if perturbed and training:
+            if rng is None:
+                raise ValueError("RNG required for perturbation")
+            random_noise = random.normal(rng, all_emb.shape)
+            # Normalize noise
+            random_noise = random_noise / (jnp.linalg.norm(random_noise, axis=-1, keepdims=True) + 1e-10)
+            # Add perturbation
+            all_emb = all_emb + jnp.sign(all_emb) * random_noise * self.eps
+        
+        # Layer-wise propagation
         embs = [all_emb]
-        
         for _ in range(self.n_layers):
-            # Message Passing: A @ E
-            # sparse.bcoo_dot_general(A, E)
-            all_emb = sparse.bcoo_dot_general(adj_sparse, all_emb, dimension_numbers=((1, 0), ((), ())))
+            all_emb = self.graph_convolution(all_emb, edge_index, edge_weight)
             embs.append(all_emb)
-            
+        
+        # Mean pooling across layers
         final_emb = jnp.mean(jnp.stack(embs), axis=0)
-        return final_emb[:self.n_users], final_emb[self.n_users:]
-
-# Loss Function
-def bpr_loss(u_emb, i_emb, j_emb):
-    pos_score = jnp.sum(u_emb * i_emb, axis=-1)
-    neg_score = jnp.sum(u_emb * j_emb, axis=-1)
-    return -jnp.mean(jnp.log(nn.sigmoid(pos_score - neg_score)))
-
-def infonce_loss(emb1, emb2, temp):
-    emb1 = emb1 / jnp.linalg.norm(emb1, axis=-1, keepdims=True)
-    emb2 = emb2 / jnp.linalg.norm(emb2, axis=-1, keepdims=True)
-    
-    pos = jnp.sum(emb1 * emb2, axis=-1) / temp
-    all_scores = jnp.matmul(emb1, emb2.T) / temp
-    
-    # LogSumExp trick for stability
-    return -jnp.mean(pos - jax.nn.logsumexp(all_scores, axis=1))
-
-# Training Step
-@jax.jit
-def train_step(state, batch, adj_sparse, key):
-    u_idx, i_idx, j_idx = batch
-    key, p_key = random.split(key)
-    
-    def loss_fn(params):
-        # Main View
-        u_emb, i_emb = model.apply(params, adj_sparse, perturbed=False)
-        u_e, i_e, j_e = u_emb[u_idx], i_emb[i_idx], i_emb[j_idx]
-        loss_bpr = bpr_loss(u_e, i_e, j_e)
         
-        # Perturbed Views
-        u1, i1 = model.apply(params, adj_sparse, perturbed=True, key=p_key)
-        # Need another key for second view? Or same noise? Usually different.
-        # Simplification: Just use one perturbed view vs main view or generate two.
-        # Let's generate two.
-        # (Omitted for brevity, assuming logic similar to PyTorch)
+        # Split into user and item embeddings
+        user_emb = final_emb[:self.n_users]
+        item_emb = final_emb[self.n_users:]
         
-        # CL Loss (Simplified: Main vs Perturbed)
-        loss_cl = infonce_loss(u_e, u1[u_idx], TEMPERATURE)
-        
-        return loss_bpr + LAMBDA_CL * loss_cl
-        
-    grad_fn = jax.value_and_grad(loss_fn)
-    loss, grads = grad_fn(state.params)
-    state = state.apply_gradients(grads=grads)
-    return state, loss
+        return user_emb, item_emb
 
-print("JAX Model Defined.")
+print("✅ LightGCN_SimGCL (FLAX) defined")
 
 #%% [markdown]
-# ## 3. EASE (JAX)
+# ## Part 3: Loss Functions
 
 #%% [code]
-print("EASE Training (JAX)...")
-# JAX is great for this.
-# X: Sparse
-# G = X.T @ X
-# P = inv(G + lambda*I)
+def compute_bpr_loss(user_emb, item_emb, u_idx, pos_idx, neg_idx):
+    """BPR Loss"""
+    pos_scores = jnp.sum(user_emb[u_idx] * item_emb[pos_idx], axis=-1)
+    neg_scores = jnp.sum(user_emb[u_idx] * item_emb[neg_idx], axis=-1)
+    loss = -jnp.mean(jnp.log(jax.nn.sigmoid(pos_scores - neg_scores) + 1e-10))
+    return loss
 
-# Construct dense X if memory allows (26k x 74k float32 ~ 7GB). It fits in Colab/Kaggle RAM.
-# Or use sparse matmul.
-X_dense = jnp.zeros((n_users, n_items))
-# Fill X_dense... (Omitted)
+def compute_infonce_loss(emb_1, emb_2, temperature=0.2):
+    """InfoNCE Contrastive Loss"""
+    # Normalize
+    emb_1 = emb_1 / (jnp.linalg.norm(emb_1, axis=-1, keepdims=True) + 1e-10)
+    emb_2 = emb_2 / (jnp.linalg.norm(emb_2, axis=-1, keepdims=True) + 1e-10)
+    
+    # Positive pairs
+    pos_score = jnp.sum(emb_1 * emb_2, axis=-1) / temperature
+    
+    # All pairs
+    all_scores = jnp.matmul(emb_1, emb_2.T) / temperature
+    
+    # InfoNCE
+    loss = -jnp.mean(jnp.log(jnp.exp(pos_score) / jnp.sum(jnp.exp(all_scores), axis=1)))
+    
+    return loss
 
-# G = jnp.matmul(X_dense.T, X_dense)
-# G = G.at[jnp.diag_indices(n_items)].add(EASE_LAMBDA)
-# P = jnp.linalg.inv(G)
-# B = P / -jnp.diag(P)
-# B = B.at[jnp.diag_indices(n_items)].set(0)
-
-print("EASE implemented with JAX linear algebra.")
+print("✅ Loss functions defined")
 
 #%% [markdown]
-# ## 4. Ensemble
-# (Similar logic to PyTorch, using JAX arrays)
+# ## Part 4: Training Setup
+
+#%% [code]
+print("\n" + "="*60)
+print("🏋️ 학습 준비")
+print("="*60)
+
+# Hyperparameters
+EMB_DIM = 64
+N_LAYERS = 3
+EPOCHS = 10  # Reduced for demo
+BATCH_SIZE = 2048
+LR = 0.001
+LAMBDA_CL = 0.2
+TEMPERATURE = 0.2
+EPS = 0.1
+
+# Initialize model
+rng = random.PRNGKey(SEED)
+rng, init_rng = random.split(rng)
+
+model = LightGCN_SimGCL(
+    n_users=n_users,
+    n_items=n_items,
+    emb_dim=EMB_DIM,
+    n_layers=N_LAYERS,
+    eps=EPS
+)
+
+# Initialize parameters
+dummy_edge_index = edge_index_jax
+dummy_edge_weight = edge_weight_jax
+
+variables = model.init(init_rng, dummy_edge_index, dummy_edge_weight, perturbed=False, training=False)
+params = variables['params']
+
+# Optimizer
+tx = optax.adam(LR)
+opt_state = tx.init(params)
+
+# Create TrainState
+class TrainState(train_state.TrainState):
+    pass
+
+state = TrainState.create(
+    apply_fn=model.apply,
+    params=params,
+    tx=tx
+)
+
+print(f"✅ Model initialized")
+print(f"  Parameters: {sum(x.size for x in jax.tree_leaves(params))}")
+
+#%% [markdown]
+# ## Part 5: Training Loop
+
+#%% [code]
+@jit
+def train_step(state, u_idx, pos_idx, neg_idx, edge_index, edge_weight, rng):
+    """Single training step"""
+    
+    def loss_fn(params):
+        # Forward pass
+        rng1, rng2, rng3 = random.split(rng, 3)
+        
+        user_emb, item_emb = model.apply(
+            {'params': params},
+            edge_index, edge_weight,
+            perturbed=False, training=True
+        )
+        
+        # BPR Loss
+        bpr_loss = compute_bpr_loss(user_emb, item_emb, u_idx, pos_idx, neg_idx)
+        
+        # Contrastive Loss
+        u_emb_1, i_emb_1 = model.apply(
+            {'params': params},
+            edge_index, edge_weight,
+            perturbed=True, training=True, rng=rng1
+        )
+        u_emb_2, i_emb_2 = model.apply(
+            {'params': params},
+            edge_index, edge_weight,
+            perturbed=True, training=True, rng=rng2
+        )
+        
+        cl_loss = compute_infonce_loss(u_emb_1[u_idx], u_emb_2[u_idx], TEMPERATURE) + \
+                  compute_infonce_loss(i_emb_1[pos_idx], i_emb_2[pos_idx], TEMPERATURE)
+        
+        # Total loss
+        total_loss = bpr_loss + LAMBDA_CL * cl_loss
+        
+        return total_loss, (bpr_loss, cl_loss)
+    
+    (loss, (bpr_loss, cl_loss)), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
+    state = state.apply_gradients(grads=grads)
+    
+    return state, loss, bpr_loss, cl_loss
+
+print("\n" + "="*60)
+print("🏋️ 학습 시작")
+print("="*60)
+
+# Prepare training data
+pos_edges = jnp.array(train_df[['user_idx', 'item_idx']].values)
+n_batches = (len(pos_edges) + BATCH_SIZE - 1) // BATCH_SIZE
+
+print(f"Epochs: {EPOCHS}, Batches/Epoch: {n_batches}")
+
+for epoch in range(1, EPOCHS + 1):
+    epoch_loss = 0.0
+    
+    # Shuffle
+    rng, shuffle_rng = random.split(rng)
+    perm = random.permutation(shuffle_rng, len(pos_edges))
+    pos_edges_shuffled = pos_edges[perm]
+    
+    for i in range(n_batches):
+        batch_pos = pos_edges_shuffled[i*BATCH_SIZE:(i+1)*BATCH_SIZE]
+        u_idx = batch_pos[:, 0]
+        pos_idx = batch_pos[:, 1]
+        
+        # Negative sampling
+        rng, neg_rng, step_rng = random.split(rng, 3)
+        neg_idx = random.randint(neg_rng, (len(u_idx),), 0, n_items)
+        
+        # Train step
+        state, loss, bpr_loss, cl_loss = train_step(
+            state, u_idx, pos_idx, neg_idx,
+            edge_index_jax, edge_weight_jax, step_rng
+        )
+        
+        epoch_loss += loss
+    
+    avg_loss = epoch_loss / n_batches
+    print(f"Epoch {epoch}/{EPOCHS} | Loss: {avg_loss:.4f}")
+
+print("✅ Training complete")
+
+#%% [markdown]
+# ## Part 6: 추론
+
+#%% [code]
+print("\n" + "="*60)
+print("🔮 추론")
+print("="*60)
+
+# Inference
+user_emb, item_emb = model.apply(
+    {'params': state.params},
+    edge_index_jax, edge_weight_jax,
+    perturbed=False, training=False
+)
+
+# Convert to numpy for easier manipulation
+user_emb_np = np.array(user_emb)
+item_emb_np = np.array(item_emb)
+
+# Top-K recommendation
+test_users = test_df['user'].unique()[:100]  # Sample for demo
+recommendations = []
+
+for u in test_users:
+    if u not in user2idx:
+        continue
+    
+    u_idx = user2idx[u]
+    seen = user_train_items.get(u_idx, set())
+    
+    # Scores
+    scores = user_emb_np[u_idx] @ item_emb_np.T
+    scores[list(seen)] = -np.inf
+    
+    # Top-20
+    top20_idx = np.argsort(scores)[-20:][::-1]
+    recommendations.append((u, top20_idx.tolist()))
+
+print(f"✅ Generated recommendations for {len(recommendations)} users")
+
+#%% [markdown]
+# ## 정리
+# 
+# JAX/FLAX를 사용한 SimGCL 구현을 완료했습니다.
+# 
+# **주요 차이점 (vs PyTorch)**:
+# - **함수형 프로그래밍**: JAX는 순수 함수를 선호하며, 상태가 없습니다.
+# - **명시적 RNG**: 난수 생성 시 RNG 키를 명시적으로 관리해야 합니다.
+# - **JIT 컴파일**: `@jit` 데코레이터로 함수를 컴파일하여 성능을 향상시킵니다.
+# - **Immutable 파라미터**: FLAX의 파라미터는 불변(immutable) 객체입니다.
+# 
+# **성능**: JAX는 XLA 컴파일을 통해 TPU/GPU에서 매우 빠른 속도를 제공합니다.

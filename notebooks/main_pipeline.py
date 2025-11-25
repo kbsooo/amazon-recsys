@@ -1,125 +1,173 @@
 #%% [markdown]
-# Amazon RecSys: Integrated Pipeline (PyTorch)
-# SimGCL + EASE Ensemble
-#
-# 이 노트북은 다음 단계를 모두 포함합니다:
-# 1. 데이터 로드 및 전처리 (Graph 생성)
-# 2. SimGCL 모델 학습 (Contrastive Learning)
-# 3. EASE 모델 학습 (Closed-form Solution)
-# 4. 앙상블 추론 (Weighted Sum + 50% Rule)
+# # Amazon RecSys - 통합 파이프라인 (PyTorch)
+# 
+# 전처리 → EASE 학습 → SimGCL 학습 → 앙상블 → 평가를 모두 포함한 완전한 파이프라인입니다.
 
 #%% [code]
 import os
 import sys
-import time
 import gc
+import time
 import pickle
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+import scipy.sparse as sp
+from collections import defaultdict
 
-# Configuration
+# Add src to path
+sys.path.append(os.path.abspath('../src'))
+
 SEED = 42
+np.random.seed(SEED)
+torch.manual_seed(SEED)
+
+# Paths
 DATA_DIR = '/kaggle/input/amazon' if os.path.exists('/kaggle/input/amazon') else 'data'
 OUTPUT_DIR = 'outputs'
 MODEL_DIR = 'models'
 
-# SimGCL Hyperparameters
-EMB_DIM = 64
-N_LAYERS = 3
-EPOCHS = 50 # Integrated version might use fewer epochs for demo, or full 100
-BATCH_SIZE = 2048
-LR = 0.001
-LAMBDA_CL = 0.2
-EPS = 0.1
-TEMPERATURE = 0.2
-
-# EASE Hyperparameters
-EASE_LAMBDA = 500.0
-
-# Ensemble Hyperparameters
-ALPHA = 0.5 # SimGCL Weight
-
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu')
-print(f"Device: {device}")
-
-# Set Seed
-torch.manual_seed(SEED)
-np.random.seed(SEED)
+# Device
+device = torch.device('cuda' if torch.cuda.is_available() else 
+                      'mps' if torch.backends.mps.is_available() else 'cpu')
+print(f"🚀 Device: {device}")
 
 #%% [markdown]
-# ## 1. Data Loading & Preprocessing
+# ## Part 1: 데이터 로드 및 준비
 
 #%% [code]
-print("Loading Data...")
+print("\n" + "="*60)
+print("📊 데이터 로드")
+print("="*60)
+
 train_df = pd.read_csv(f'{DATA_DIR}/train_split.csv')
 val_df = pd.read_csv(f'{DATA_DIR}/val_split.csv')
 test_df = pd.read_csv(f'{DATA_DIR}/test_split.csv')
 
-# Load Mappings
 with open(f'{DATA_DIR}/user2idx.pkl', 'rb') as f:
-    user2idx = pickle.load(f)
+    user2idx=pickle.load(f)
 with open(f'{DATA_DIR}/item2idx.pkl', 'rb') as f:
     item2idx = pickle.load(f)
+with open(f'{DATA_DIR}/user_k.pkl', 'rb') as f:
+    user_k = pickle.load(f)
+with open(f'{DATA_DIR}/user_train_items.pkl', 'rb') as f:
+    user_train_items = pickle.load(f)
+
+# Reverse mappings
+idx2user = {v: k for k, v in user2idx.items()}
+idx2item = {v: k for k, v in item2idx.items()}
 
 n_users = len(user2idx)
 n_items = len(item2idx)
+
 print(f"Users: {n_users}, Items: {n_items}")
+print(f"Train: {len(train_df)}, Val: {len(val_df)}, Test: {len(test_df)}")
 
-# Create Graph (Edge Index) for SimGCL
-# We use train_df for SimGCL training
-print("Building Graph for SimGCL...")
-train_src = [user2idx[u] for u in train_df['user']]
-train_dst = [item2idx[i] for i in train_df['item']]
-train_edge_index = torch.tensor([train_src, train_dst], dtype=torch.long)
-
-# Normalize Adjacency Matrix (LightGCN style)
-def compute_normalized_laplacian(edge_index, n_users, n_items):
-    # Construct Adjacency: [U, I]
-    # We need symmetric adjacency for GCN: 
-    # A = [0, R]
-    #     [R.T, 0]
-    
-    src, dst = edge_index
-    dst = dst + n_users # Shift item indices
-    
-    # Bi-directional edges
-    full_src = torch.cat([src, dst])
-    full_dst = torch.cat([dst, src])
-    full_edge_index = torch.stack([full_src, full_dst])
-    
-    # Degree
-    num_nodes = n_users + n_items
-    deg = torch.zeros(num_nodes, dtype=torch.float)
-    deg.scatter_add_(0, full_src, torch.ones_like(full_src, dtype=torch.float))
-    
-    # Norm: D^{-1/2}
-    deg_inv_sqrt = deg.pow(-0.5)
-    deg_inv_sqrt[deg_inv_sqrt == float('inf')] = 0
-    
-    # Edge Weight: D^{-1/2} * A * D^{-1/2}
-    # For edge (i, j), weight is deg[i]^-0.5 * deg[j]^-0.5
-    edge_weight = deg_inv_sqrt[full_src] * deg_inv_sqrt[full_dst]
-    
-    return full_edge_index, edge_weight
-
-norm_edge_index, norm_edge_weight = compute_normalized_laplacian(train_edge_index, n_users, n_items)
-norm_edge_index = norm_edge_index.to(device)
-norm_edge_weight = norm_edge_weight.to(device)
-
-print("Graph built.")
+# Load Graph
+graph_data = torch.load(f'{DATA_DIR}/train_graph.pt', map_location=device, weights_only=False)
+edge_index = graph_data['edge_index'].to(device)
+edge_weight = graph_data['cca_weight'].to(device)
 
 #%% [markdown]
-# ## 2. SimGCL Model & Training
+# ## Part 2: EASE 모델 학습
 
 #%% [code]
+print("\n" + "="*60)
+print("🔧 EASE 모델 학습")
+print("="*60)
+
+LAMBDA_EASE = 500.0
+
+# Interaction Matrix (Train + Val)
+full_train_df = pd.concat([train_df, val_df])
+rows = full_train_df['user_idx'].values
+cols = full_train_df['item_idx'].values
+data = np.ones(len(rows), dtype=np.float32)
+X = sp.csr_matrix((data, (rows, cols)), shape=(n_users, n_items))
+
+# Gram Matrix
+print("Computing Gram Matrix...")
+start_time = time.time()
+G = X.T.dot(X)
+print(f"⏱️ Gram Matrix: {time.time() - start_time:.2f}s")
+
+# Convert to dense
+print("Converting to dense...")
+G_dense = torch.from_numpy(G.toarray()).to(device)
+del G
+gc.collect()
+
+# Add regularization
+diag_indices = torch.arange(n_items)
+G_dense[diag_indices, diag_indices] += LAMBDA_EASE
+
+# Inversion
+print("Matrix inversion...")
+start_time = time.time()
+P = torch.linalg.inv(G_dense)
+print(f"⏱️ Inversion: {time.time() - start_time:.2f}s")
+
+# Cleanup
+diag_P = torch.diag(P)
+inv_diag_P = 1.0 / diag_P
+del G_dense
+gc.collect()
+
+# Inference
+print("EASE Inference...")
+test_users = test_df['user'].unique()
+test_user_idxs = [user2idx[u] for u in test_users if u in user2idx]
+
+ease_results = {}
+batch_size = 1000
+
+for i in range(0, len(test_user_idxs), batch_size):
+    batch_idxs = test_user_idxs[i:i+batch_size]
+    x_batch = torch.from_numpy(X[batch_idxs].toarray()).to(device)
+    
+    # Scores: X - (X @ P) * inv_diag_P
+    xp = torch.matmul(x_batch, P)
+    scores = x_batch - xp * inv_diag_P.unsqueeze(0)
+    scores[x_batch > 0] = -float('inf')
+    
+    # Top-100
+    topk_scores, topk_indices = torch.topk(scores, k=100, dim=1)
+    
+    for j, u_idx in enumerate(batch_idxs):
+        items_np = topk_indices[j].cpu().numpy()
+        scores_np = topk_scores[j].cpu().numpy()
+        
+        # Normalize per user
+        min_s, max_s = scores_np.min(), scores_np.max()
+        if max_s - min_s > 1e-6:
+            norm_scores = (scores_np - min_s) / (max_s - min_s)
+        else:
+            norm_scores = np.zeros_like(scores_np)
+        
+        ease_results[u_idx] = {item: score for item, score in zip(items_np, norm_scores)}
+    
+    if (i // batch_size + 1) % 10 == 0:
+        print(f"  Batch {i // batch_size + 1}/{(len(test_user_idxs) + batch_size - 1) // batch_size}")
+
+print(f"✅ EASE complete: {len(ease_results)} users")
+
+# Cleanup
+del P, diag_P, inv_diag_P
+gc.collect()
+
+#%% [markdown]
+# ## Part 3: SimGCL 모델 정의 및 학습
+
+#%% [code]
+print("\n" + "="*60)
+print("🧠 SimGCL 모델 정의")
+print("="*60)
+
 class LightGCN_SimGCL(nn.Module):
     def __init__(self, n_users, n_items, emb_dim=64, n_layers=3, eps=0.1):
         super().__init__()
@@ -138,8 +186,8 @@ class LightGCN_SimGCL(nn.Module):
         all_emb = torch.cat([self.user_emb.weight, self.item_emb.weight], dim=0)
         
         if perturbed and self.training:
-            noise = torch.randn_like(all_emb).to(all_emb.device)
-            all_emb = all_emb + torch.sign(all_emb) * F.normalize(noise, dim=-1) * self.eps
+            random_noise = torch.randn_like(all_emb).to(all_emb.device)
+            all_emb = all_emb + torch.sign(all_emb) * F.normalize(random_noise, dim=-1) * self.eps
         
         embs = [all_emb]
         for _ in range(self.n_layers):
@@ -153,217 +201,295 @@ class LightGCN_SimGCL(nn.Module):
         final_emb = torch.mean(torch.stack(embs), dim=0)
         return final_emb[:self.n_users], final_emb[self.n_users:]
 
-    def get_perturbed_embeddings(self, edge_index, edge_weight):
-        u1, i1 = self.forward(edge_index, edge_weight, perturbed=True)
-        u2, i2 = self.forward(edge_index, edge_weight, perturbed=True)
-        return u1, i1, u2, i2
-
-def compute_infonce_loss(emb1, emb2, temp=0.2):
-    emb1 = F.normalize(emb1, dim=-1)
-    emb2 = F.normalize(emb2, dim=-1)
-    pos = (emb1 * emb2).sum(dim=-1) / temp
-    all_scores = torch.matmul(emb1, emb2.t()) / temp
-    loss = -torch.log(torch.exp(pos) / torch.exp(all_scores).sum(dim=1)).mean()
+def compute_infonce_loss(emb_1, emb_2, temperature=0.2):
+    emb_1 = F.normalize(emb_1, dim=-1)
+    emb_2 = F.normalize(emb_2, dim=-1)
+    pos_score = (emb_1 * emb_2).sum(dim=-1) / temperature
+    all_scores = torch.matmul(emb_1, emb_2.t()) / temperature
+    loss = -torch.log(torch.exp(pos_score) / torch.exp(all_scores).sum(dim=1)).mean()
     return loss
 
-# Training Setup
+print("✅ SimGCL model defined")
+
+#%% [code]
+print("\n" + "="*60)
+print("🏋️ SimGCL 학습")
+print("="*60)
+
+# Hyperparameters
+EMB_DIM = 64
+N_LAYERS = 3
+EPOCHS = 100
+BATCH_SIZE = 2048
+LR = 0.001
+LAMBDA_CL = 0.2
+TEMPERATURE = 0.2
+EPS = 0.1
+
 model = LightGCN_SimGCL(n_users, n_items, EMB_DIM, N_LAYERS, EPS).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
-# Simple Dataset for BPR
-class BPRDataset(Dataset):
-    def __init__(self, train_df, n_items, n_neg=1):
-        self.users = torch.LongTensor([user2idx[u] for u in train_df['user']])
-        self.items = torch.LongTensor([item2idx[i] for i in train_df['item']])
-        self.n_items = n_items
-        self.n_neg = n_neg
+# Prepare training data
+pos_edges = torch.LongTensor(train_df[['user_idx', 'item_idx']].values).to(device)
+n_batches = (len(pos_edges) + BATCH_SIZE - 1) // BATCH_SIZE
+
+print(f"Epochs: {EPOCHS}, Batch Size: {BATCH_SIZE}, Batches/Epoch: {n_batches}")
+
+best_recall = 0.0
+
+for epoch in range(1, EPOCHS + 1):
+    model.train()
+    epoch_loss = 0.0
+    
+    # Shuffle
+    perm = torch.randperm(len(pos_edges))
+    pos_edges_shuffled = pos_edges[perm]
+    
+    for i in range(n_batches):
+        batch_pos = pos_edges_shuffled[i*BATCH_SIZE:(i+1)*BATCH_SIZE]
+        u_idx = batch_pos[:, 0]
+        i_idx = batch_pos[:, 1]
         
-        # User-Item Set for fast negative sampling
-        self.user_item_set = set(zip(self.users.numpy(), self.items.numpy()))
-
-    def __len__(self):
-        return len(self.users)
-
-    def __getitem__(self, idx):
-        u = self.users[idx]
-        i = self.items[idx]
-        
-        # Negative Sampling
-        neg_item = np.random.randint(0, self.n_items)
-        while (u.item(), neg_item) in self.user_item_set:
-            neg_item = np.random.randint(0, self.n_items)
-            
-        return u, i, torch.tensor(neg_item)
-
-train_dataset = BPRDataset(train_df, n_items)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-print("Starting SimGCL Training...")
-model.train()
-for epoch in range(EPOCHS):
-    total_loss = 0
-    for u, i, j in train_loader:
-        u, i, j = u.to(device), i.to(device), j.to(device)
+        # Negative sampling (simplified)
+        neg_idx = torch.randint(0, n_items, (len(u_idx),), device=device)
         
         # Forward
-        u_emb, i_emb = model(norm_edge_index, norm_edge_weight, perturbed=False)
+        user_emb, item_emb = model(edge_index, edge_weight, perturbed=False)
         
         # BPR Loss
-        u_e, i_e, j_e = u_emb[u], i_emb[i], i_emb[j]
-        pos_score = (u_e * i_e).sum(dim=-1)
-        neg_score = (u_e * j_e).sum(dim=-1)
-        bpr_loss = -torch.log(torch.sigmoid(pos_score - neg_score)).mean()
+        pos_scores = (user_emb[u_idx] * item_emb[i_idx]).sum(dim=-1)
+        neg_scores = (user_emb[u_idx] * item_emb[neg_idx]).sum(dim=-1)
+        bpr_loss = -torch.log(torch.sigmoid(pos_scores - neg_scores) + 1e-10).mean()
         
-        # CL Loss
-        u1, i1, u2, i2 = model.get_perturbed_embeddings(norm_edge_index, norm_edge_weight)
-        # Calculate CL only on current batch users/items to save memory/time
-        # Or unique users/items in batch
-        unique_u = torch.unique(u)
-        unique_i = torch.unique(torch.cat([i, j]))
+        # Contrastive Loss
+        u_emb_1, i_emb_1 = model(edge_index, edge_weight, perturbed=True)
+        u_emb_2, i_emb_2 = model(edge_index, edge_weight, perturbed=True)
+        cl_loss = compute_infonce_loss(u_emb_1[u_idx], u_emb_2[u_idx], TEMPERATURE) + \
+                  compute_infonce_loss(i_emb_1[i_idx], i_emb_2[i_idx], TEMPERATURE)
         
-        cl_loss = compute_infonce_loss(u1[unique_u], u2[unique_u], TEMPERATURE) + \
-                  compute_infonce_loss(i1[unique_i], i2[unique_i], TEMPERATURE)
-        
+        # Total Loss
         loss = bpr_loss + LAMBDA_CL * cl_loss
         
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         
-        total_loss += loss.item()
+        epoch_loss += loss.item()
+    
+    avg_loss = epoch_loss / n_batches
+    
+    # Validation every 5 epochs
+    if epoch % 5 == 0:
+        model.eval()
+        with torch.no_grad():
+            user_emb, item_emb = model(edge_index, edge_weight, perturbed=False)
+            
+            # Simple Recall@20 on val
+            val_users = val_df['user_idx'].unique()
+            hits = 0
+            total = 0
+            
+            for u_idx in val_users[:1000]:  # Sample for speed
+                seen = user_train_items.get(u_idx, set())
+                val_items = set(val_df[val_df['user_idx'] == u_idx]['item_idx'].values)
+                
+                scores = (user_emb[u_idx] * item_emb).sum(dim=-1)
+                scores[list(seen)] = -float('inf')
+                
+                top20 = torch.topk(scores, k=20)[1].cpu().tolist()
+                hits += len(set(top20) & val_items)
+                total += len(val_items)
+            
+            recall = hits / total if total > 0 else 0.0
+            
+            print(f"Epoch {epoch}/{EPOCHS} | Loss: {avg_loss:.4f} | Recall@20: {recall:.4f}")
+            
+            if recall > best_recall:
+                best_recall = recall
+                torch.save({
+                    'state_dict': model.state_dict(),
+                    'config': {'n_users': n_users, 'n_items': n_items, 
+                               'emb_dim': EMB_DIM, 'n_layers': N_LAYERS, 'eps': EPS}
+                }, f'{MODEL_DIR}/simgcl_best.pt')
+                print(f"  💾 Best model saved (Recall@20: {best_recall:.4f})")
+    else:
+        print(f"Epoch {epoch}/{EPOCHS} | Loss: {avg_loss:.4f}")
+
+print(f"✅ SimGCL training complete (Best Recall@20: {best_recall:.4f})")
+
+#%% [markdown]
+# ## Part 4: SimGCL 추론
+
+#%% [code]
+print("\n" + "="*60)
+print("🔮 SimGCL 추론")
+print("="*60)
+
+# Load best model
+checkpoint = torch.load(f'{MODEL_DIR}/simgcl_best.pt', map_location=device, weights_only=False)
+model.load_state_dict(checkpoint['state_dict'])
+model.eval()
+
+simgcl_results = {}
+
+with torch.no_grad():
+    user_emb, item_emb = model(edge_index, edge_weight, perturbed=False)
+    
+    for i in range(0, len(test_user_idxs), batch_size):
+        batch_idxs = test_user_idxs[i:i+batch_size]
+        batch_u_emb = user_emb[batch_idxs]
+        batch_scores = torch.matmul(batch_u_emb, item_emb.t())
         
-    if (epoch+1) % 5 == 0:
-        print(f"Epoch {epoch+1}/{EPOCHS} | Loss: {total_loss/len(train_loader):.4f}")
+        for j, u_idx in enumerate(batch_idxs):
+            scores = batch_scores[j]
+            seen = user_train_items.get(u_idx, set())
+            if seen:
+                scores[list(seen)] = -float('inf')
+            
+            topk_scores, topk_indices = torch.topk(scores, k=100)
+            
+            items_np = topk_indices.cpu().numpy()
+            scores_np = topk_scores.cpu().numpy()
+            
+            # Normalize
+            min_s, max_s = scores_np.min(), scores_np.max()
+            if max_s - min_s > 1e-6:
+                norm_scores = (scores_np - min_s) / (max_s - min_s)
+            else:
+                norm_scores = np.zeros_like(scores_np)
+            
+            simgcl_results[u_idx] = {item: score for item, score in zip(items_np, norm_scores)}
 
-print("SimGCL Training Complete.")
-
-#%% [markdown]
-# ## 3. EASE Model Training
-
-#%% [code]
-print("Starting EASE Training...")
-# Combine Train + Val for EASE
-full_train_df = pd.concat([train_df, val_df])
-
-# Create Sparse Matrix
-rows = [user2idx[u] for u in full_train_df['user']]
-cols = [item2idx[i] for i in full_train_df['item']]
-data = np.ones(len(rows), dtype=np.float32)
-
-X = sp.csr_matrix((data, (rows, cols)), shape=(n_users, n_items))
-
-# Gram Matrix
-G = X.T.dot(X).toarray()
-diag_indices = np.arange(n_items)
-G[diag_indices, diag_indices] += EASE_LAMBDA
-
-# Inversion
-P = np.linalg.inv(G)
-B = P / (-np.diag(P))
-B[diag_indices, diag_indices] = 0
-
-# Convert B to Tensor for Inference
-B_tensor = torch.from_numpy(B).float().to(device)
-
-print("EASE Training Complete.")
+print(f"✅ SimGCL inference complete: {len(simgcl_results)} users")
 
 #%% [markdown]
-# ## 4. Ensemble Inference
+# ## Part 5: 앙상블
 
 #%% [code]
-print("Running Ensemble Inference...")
+print("\n" + "="*60)
+print("🎯 앙상블 (SimGCL + EASE)")
+print("="*60)
 
-# Prepare Test Data
-test_users = test_df['user'].unique()
-test_user_idxs = [user2idx[u] for u in test_users if u in user2idx]
+ALPHA = 0.5  # SimGCL weight
 
-# User History (for masking seen items)
-user_history = {}
-for u, i in zip(full_train_df['user'], full_train_df['item']):
-    if u in user2idx and i in item2idx:
-        uidx = user2idx[u]
-        if uidx not in user_history: user_history[uidx] = set()
-        user_history[uidx].add(item2idx[i])
+ensemble_preds = []
 
-# Batch Inference
-batch_size = 1000
-n_batches = (len(test_user_idxs) + batch_size - 1) // batch_size
+for u in test_users:
+    if u not in user2idx:
+        continue
+    
+    u_idx = user2idx[u]
+    K = user_k.get(u_idx, 0)
+    num_recommend = int(K * 0.5)
+    
+    if num_recommend == 0:
+        continue
+    
+    # Get scores
+    simgcl_map = simgcl_results.get(u_idx, {})
+    ease_map = ease_results.get(u_idx, {})
+    
+    # Merge
+    all_candidates = set(simgcl_map.keys()) | set(ease_map.keys())
+    merged_scores = []
+    
+    for item in all_candidates:
+        s_score = simgcl_map.get(item, 0.0)
+        e_score = ease_map.get(item, 0.0)
+        final_score = ALPHA * s_score + (1 - ALPHA) * e_score
+        merged_scores.append((item, final_score))
+    
+    # Top-N
+    merged_scores.sort(key=lambda x: x[1], reverse=True)
+    top_n = merged_scores[:num_recommend]
+    rec_items = {idx2item[item] for item, _ in top_n}
+    
+    ensemble_preds.append((u, rec_items))
 
-final_results = []
+# Convert to submission
+user_rec_map = {u: recs for u, recs in ensemble_preds}
+submission_rows = []
 
-# SimGCL Embeddings (Final)
+for _, row in test_df.iterrows():
+    u, i = row['user'], row['item']
+    recs = user_rec_map.get(u, set())
+    recommend = 'O' if i in recs else 'X'
+    submission_rows.append({'user': u, 'item': i, 'recommend': recommend})
+
+submission_df = pd.DataFrame(submission_rows)
+submission_df.to_csv(f'{OUTPUT_DIR}/ensemble_predictions.csv', index=False)
+
+rec_cnt = len(submission_df[submission_df['recommend'] == 'O'])
+total_cnt = len(submission_df)
+
+print(f"✅ Ensemble complete")
+print(f"📊 Recommendations: {rec_cnt}/{total_cnt} ({rec_cnt/total_cnt*100:.2f}%)")
+print(f"💾 Saved to {OUTPUT_DIR}/ensemble_predictions.csv")
+
+#%% [markdown]
+# ## Part 6: 평가 (Validation Set)
+
+#%% [code]
+print("\n" + "="*60)
+print("📈 평가")
+print("="*60)
+
+def evaluate_metrics(model, user_emb, item_emb, eval_df, user_train_items, k=20):
+    """Recall, NDCG, Precision, MAP 계산"""
+    from collections import defaultdict
+    
+    user_metrics = defaultdict(lambda: {'hits': 0, 'total': 0, 'dcg': 0.0, 'idcg': 0.0, 'ap': 0.0})
+    
+    for u_idx in eval_df['user_idx'].unique():
+        seen = user_train_items.get(u_idx, set())
+        true_items = set(eval_df[eval_df['user_idx'] == u_idx]['item_idx'].values)
+        
+        scores = (user_emb[u_idx] * item_emb).sum(dim=-1)
+        scores[list(seen)] = -float('inf')
+        
+        topk_items = torch.topk(scores, k=k)[1].cpu().tolist()
+        
+        # Metrics
+        hits = len(set(topk_items) & true_items)
+        user_metrics[u_idx]['hits'] = hits
+        user_metrics[u_idx]['total'] = len(true_items)
+        
+        # NDCG
+        dcg = sum([(1.0 if item in true_items else 0.0) / np.log2(i + 2) for i, item in enumerate(topk_items)])
+        idcg = sum([1.0 / np.log2(i + 2) for i in range(min(len(true_items), k))])
+        user_metrics[u_idx]['dcg'] = dcg
+        user_metrics[u_idx]['idcg'] = idcg
+        
+        # MAP
+        precisions = []
+        hits_so_far = 0
+        for i, item in enumerate(topk_items):
+            if item in true_items:
+                hits_so_far += 1
+                precisions.append(hits_so_far / (i + 1))
+        user_metrics[u_idx]['ap'] = np.mean(precisions) if precisions else 0.0
+    
+    # Aggregate
+    total_hits = sum([m['hits'] for m in user_metrics.values()])
+    total_items = sum([m['total'] for m in user_metrics.values()])
+    recall = total_hits / total_items if total_items > 0 else 0.0
+    
+    ndcg = np.mean([m['dcg'] / m['idcg'] if m['idcg'] > 0 else 0.0 for m in user_metrics.values()])
+    precision = total_hits / (len(user_metrics) * k)
+    map_score = np.mean([m['ap'] for m in user_metrics.values()])
+    
+    return {'Recall': recall, 'NDCG': ndcg, 'Precision': precision, 'MAP': map_score}
+
+# Evaluate
 model.eval()
 with torch.no_grad():
-    u_emb_final, i_emb_final = model(norm_edge_index, norm_edge_weight, perturbed=False)
+    user_emb, item_emb = model(edge_index, edge_weight, perturbed=False)
+    metrics = evaluate_metrics(model, user_emb, item_emb, val_df, user_train_items, k=20)
 
-for i in range(n_batches):
-    start = i * batch_size
-    end = min((i + 1) * batch_size, len(test_user_idxs))
-    batch_u_idxs = test_user_idxs[start:end]
-    
-    # 1. SimGCL Scores
-    # [B, Dim] @ [Dim, I] -> [B, I]
-    s_scores = torch.matmul(u_emb_final[batch_u_idxs], i_emb_final.t())
-    
-    # 2. EASE Scores
-    # X_batch [B, I] @ B [I, I] -> [B, I]
-    # Need X_batch for these users
-    x_batch_scipy = X[batch_u_idxs]
-    x_batch_tensor = torch.from_numpy(x_batch_scipy.toarray()).float().to(device)
-    e_scores = torch.matmul(x_batch_tensor, B_tensor)
-    
-    # 3. Normalize & Combine
-    # Min-Max Normalize per user (row-wise)
-    def normalize(tensor):
-        min_v = tensor.min(dim=1, keepdim=True)[0]
-        max_v = tensor.max(dim=1, keepdim=True)[0]
-        return (tensor - min_v) / (max_v - min_v + 1e-8)
-    
-    s_norm = normalize(s_scores)
-    e_norm = normalize(e_scores)
-    
-    final_scores = ALPHA * s_norm + (1 - ALPHA) * e_norm
-    
-    # 4. Mask Seen Items
-    for idx, u_idx in enumerate(batch_u_idxs):
-        seen = user_history.get(u_idx, set())
-        if seen:
-            final_scores[idx, list(seen)] = -float('inf')
-            
-    # 5. Top-K & Rules
-    # Get K for each user
-    # We need user_k mapping.
-    # Let's assume we have it or calculate it from train_df?
-    # The user provided user_k.pkl, let's load it.
-    # If not loaded, calculate from train_df.
-    # We'll assume user_k is available or calculate it here.
-    pass # Logic inside loop
-    
-    # We need to load user_k.pkl
-    with open(f'{DATA_DIR}/user_k.pkl', 'rb') as f:
-        user_k = pickle.load(f)
-        
-    for idx, u_idx in enumerate(batch_u_idxs):
-        scores = final_scores[idx]
-        K = user_k.get(u_idx, 0)
-        num_rec = int(K * 0.5)
-        
-        if num_rec > 0:
-            _, top_indices = torch.topk(scores, k=num_rec)
-            recs = top_indices.cpu().numpy()
-        else:
-            recs = []
-            
-        # Convert to Item IDs
-        u_id = [k for k, v in user2idx.items() if v == u_idx][0] # Slow reverse lookup
-        # Better to use idx2user map created earlier
-        # Assuming idx2user exists
-        
-        rec_items = {list(item2idx.keys())[list(item2idx.values()).index(ri)] for ri in recs} # Slow
-        # Use idx2item
-        
-        final_results.append((u_id, rec_items))
+print(f"📊 Validation Metrics @20:")
+print(f"  Recall:    {metrics['Recall']:.4f}")
+print(f"  NDCG:      {metrics['NDCG']:.4f}")
+print(f"  Precision: {metrics['Precision']:.4f}")
+print(f"  MAP:       {metrics['MAP']:.4f}")
 
-# Save Results
-# ... (Same as ensemble.py)
-print("Inference Done.")
+print("\n✅ 파이프라인 완료!")
